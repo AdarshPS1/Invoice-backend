@@ -8,7 +8,7 @@ const authRoutes = require('./routes/authRoutes');
 const invoiceRoutes = require('./routes/invoiceRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
-// const clientRoutes = require('./routes/clientRoutes');
+const clientRoute = require('./routes/clientRoute');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 // Load environment variables
 dotenv.config({ path: './.env' });
@@ -53,5 +53,5 @@ app.use('/api/auth', authRoutes);      // Authentication routes (login, register
 app.use('/api/invoices', invoiceRoutes); // Invoice management routes
 app.use('/api/reports', reportRoutes);
 app.use('/api/notifications', notificationRoutes);
-app.use('/api/clients', clientRoutes);
+app.use('/api/clients', clientRoute);
 app.use('/api/dashboard', dashboardRoutes);
