@@ -8,7 +8,7 @@ const authRoutes = require('./routes/authRoutes');
 const invoiceRoutes = require('./routes/invoiceRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
-const clientRoutes = require('./routes/clientRoutes');
+// const clientRoutes = require('./routes/clientRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 // Load environment variables
 dotenv.config({ path: './.env' });
