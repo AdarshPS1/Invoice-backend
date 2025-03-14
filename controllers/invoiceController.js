@@ -1,6 +1,6 @@
 const Invoice = require('../models/Invoice');
 const Client = require('../models/Client');
-const generateInvoicePDF = require('../utils/pdfGenerator');
+const generateInvoicePDF = require('../utils/pdfKitGenerator');
 
 // Get all invoices
 const getInvoices = async (req, res) => {
@@ -194,19 +194,21 @@ const generateInvoicePDFController = async (req, res) => {
       const pdfPath = await generateInvoicePDF(invoice);
       console.log('PDF generated successfully at:', pdfPath);
       
-      // Set appropriate headers for PDF download
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="Invoice_${invoice.invoiceNumber}.pdf"`);
-      
-      // Send the file
-      res.download(pdfPath, `Invoice_${invoice.invoiceNumber}.pdf`, (err) => {
+      // Read the file and send it directly
+      const fs = require('fs');
+      fs.readFile(pdfPath, (err, data) => {
         if (err) {
-          console.error('Error sending PDF file:', err);
-          // Don't send another response if headers are already sent
-          if (!res.headersSent) {
-            res.status(500).json({ message: 'Error sending PDF file', error: err.message });
-          }
+          console.error('Error reading PDF file:', err);
+          return res.status(500).json({ message: 'Error reading PDF file', error: err.message });
         }
+        
+        // Set appropriate headers for PDF download
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="Invoice_${invoice.invoiceNumber}.pdf"`);
+        res.setHeader('Content-Length', data.length);
+        
+        // Send the PDF data
+        res.send(data);
       });
     } catch (pdfError) {
       console.error('Error generating PDF:', pdfError);
