@@ -45,9 +45,9 @@ router.post('/:id/payments', protect, addPaymentToInvoice);
 router.get('/:id/payments', protect, getInvoicePayments);
 
 // Generate and download an invoice PDF
-router.post('/:id/generate-pdf', protect, generateInvoicePDFController);
+router.post('/:invoiceId/generate-pdf', protect, generateInvoicePDFController);
 
 // Route to generate PDF for an invoice
-router.get('/:id/pdf', protect, generateInvoicePDFController);
+router.get('/:id/pdf', generateInvoicePDFController);
 
 module.exports = router;

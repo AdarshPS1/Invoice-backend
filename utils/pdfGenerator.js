@@ -78,12 +78,11 @@ function convertAmountToWords(amount) {
 }
 
 const generateInvoicePDF = async (invoice) => {
-  let browser = null;
-  
   try {
     console.log('Received invoice data:', {
       invoiceNumber: invoice?.invoiceNumber,
       client: invoice?.client?.name,
+      totalAmount: invoice?.totalAmount,
       items: invoice?.items?.length,
     });
 
@@ -91,54 +90,34 @@ const generateInvoicePDF = async (invoice) => {
       throw new Error('Invalid invoice data');
     }
 
-    // Generate a default invoice number if not present
     if (!invoice.invoiceNumber) {
-      console.warn('Missing invoiceNumber in invoice data, generating a default one');
-      invoice.invoiceNumber = `INV-${Date.now()}`;
+      throw new Error('Missing invoiceNumber in invoice data');
     }
 
-    console.log('Processing invoice items:', invoice.items);
+    console.log('Invoice items:', invoice.items);
 
-    // Ensure items is an array
-    const items = Array.isArray(invoice.items) ? invoice.items : [];
-    
-    // Calculate total amount from items
-    const totalAmount = items.reduce((sum, item) => {
-      const quantity = Number(item.quantity) || 0;
-      const rate = Number(item.rate) || 0;
-      return sum + (quantity * rate);
-    }, 0);
+    const totalAmount = invoice.items.reduce((sum, item) => sum + ((item.quantity || 0) * (item.rate || 0)), 0);
 
     const templatePath = path.join(__dirname, 'invoiceTemplate.html');
-    
-    // Check if template exists
-    if (!fs.existsSync(templatePath)) {
-      console.error('Invoice template not found at:', templatePath);
-      throw new Error('Invoice template not found');
-    }
-    
     const html = fs.readFileSync(templatePath, 'utf8');
     const template = Handlebars.compile(html);
 
     const data = {
       invoiceNumber: invoice.invoiceNumber,
-      date: invoice.date ? new Date(invoice.date).toLocaleDateString() : new Date().toLocaleDateString(),
-      dueDate: invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : 'N/A',
+      date: invoice.date,
+      dueDate: invoice.dueDate,
       clientName: invoice.client?.name || 'N/A',
       clientEmail: invoice.client?.email || 'N/A',
       clientPhone: invoice.client?.phone || 'N/A',
-      clientAddress: invoice.client?.address || 'N/A',
-      clientGSTIN: 'N/A',
-      paymentTerms: 'Net 30',
-      items: items.map((item) => ({
+      items: Array.isArray(invoice.items) ? invoice.items.map((item) => ({
         description: item.description || 'No description',
         sac: item.sac || '998314',
         quantity: item.quantity || 1,
         rate: item.rate || 0,
         amount: (item.quantity || 0) * (item.rate || 0),
-      })),
+      })) : [],
       totalAmount: totalAmount,
-      amountInWords: convertAmountToWords(Math.round(totalAmount)),
+      amountInWords: convertAmountToWords(totalAmount),
       currency: invoice.currency || 'USD',
     };
 
@@ -150,92 +129,36 @@ const generateInvoicePDF = async (invoice) => {
     }));
     data.totalAmount = formatCurrency(data.totalAmount, data.currency);
 
-    console.log('Data used for PDF generation:', {
-      invoiceNumber: data.invoiceNumber,
-      clientName: data.clientName,
-      itemsCount: data.items.length,
-      totalAmount: data.totalAmount
-    });
+    console.log('Data used for PDF generation:', data);
 
     const compiledHtml = template(data);
 
-    // Create the invoices directory if it doesn't exist
-    const invoicesDir = path.join(__dirname, '..', 'invoices');
-    if (!fs.existsSync(invoicesDir)) {
-      fs.mkdirSync(invoicesDir, { recursive: true });
-    }
+    const browser = await puppeteer.launch();
+    const page = await browser.newPage();
+    await page.setContent(compiledHtml);
 
-    // Sanitize the filename
     const sanitizeFilename = (filename) => {
       if (!filename || typeof filename !== 'string') {
-        console.error('Invalid filename:', filename);
+        console.error('Invalid filename:', filename); // Debug invalid filename
         return 'Invoice_Unknown_' + Date.now();
       }
       return filename.replace(/[\/\\?%*:|"<>]/g, '-');
     };
 
+    const invoicesDir = path.join(__dirname, '..', 'invoices');
+    if (!fs.existsSync(invoicesDir)) {
+      fs.mkdirSync(invoicesDir);
+    }
+
     const pdfPath = path.join(invoicesDir, `Invoice_${sanitizeFilename(invoice.invoiceNumber)}.pdf`);
 
-    console.log('Launching Puppeteer...');
-    
-    // Launch puppeteer with specific args to avoid issues in cloud environments
-    browser = await puppeteer.launch({
-      args: [
-        '--no-sandbox', 
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--single-process',
-        '--disable-gpu'
-      ],
-      headless: 'new'
-    });
-    
-    console.log('Puppeteer launched successfully');
-    
-    const page = await browser.newPage();
-    console.log('Setting page content...');
-    await page.setContent(compiledHtml);
-    
-    console.log('Generating PDF...');
-    await page.pdf({ 
-      path: pdfPath, 
-      format: 'A4',
-      printBackground: true,
-      margin: {
-        top: '10mm',
-        right: '10mm',
-        bottom: '10mm',
-        left: '10mm'
-      }
-    });
+    await page.pdf({ path: pdfPath, format: 'A4' });
 
-    console.log('PDF generated successfully at:', pdfPath);
-    
-    // Close the browser
-    if (browser) {
-      console.log('Closing browser...');
-      await browser.close();
-      browser = null;
-    }
-    
+    await browser.close();
     return pdfPath;
   } catch (err) {
-    console.error('Error generating PDF:', err);
-    
-    // Make sure to close the browser in case of error
-    if (browser) {
-      try {
-        console.log('Closing browser after error...');
-        await browser.close();
-      } catch (closeErr) {
-        console.error('Error closing browser:', closeErr);
-      }
-    }
-    
-    throw new Error(`PDF generation failed: ${err.message}`);
+    console.error('Error generating PDF:', err.message);
+    throw err;
   }
 };
 

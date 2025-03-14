@@ -175,47 +175,14 @@ const getInvoicePayments = async (req, res) => {
 // Generate invoice PDF
 const generateInvoicePDFController = async (req, res) => {
   try {
-    console.log('Generating PDF for invoice ID:', req.params.id);
-    
     const invoice = await Invoice.findById(req.params.id).populate('client');
     if (!invoice) {
-      console.error('Invoice not found:', req.params.id);
       return res.status(404).json({ message: 'Invoice not found' });
     }
-    
-    console.log('Found invoice:', {
-      id: invoice._id,
-      invoiceNumber: invoice.invoiceNumber,
-      client: invoice.client ? invoice.client.name : 'Unknown',
-      items: invoice.items ? invoice.items.length : 0
-    });
-    
-    try {
-      const pdfPath = await generateInvoicePDF(invoice);
-      console.log('PDF generated successfully at:', pdfPath);
-      
-      // Read the file and send it directly
-      const fs = require('fs');
-      fs.readFile(pdfPath, (err, data) => {
-        if (err) {
-          console.error('Error reading PDF file:', err);
-          return res.status(500).json({ message: 'Error reading PDF file', error: err.message });
-        }
-        
-        // Set appropriate headers for PDF download
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="Invoice_${invoice.invoiceNumber}.pdf"`);
-        res.setHeader('Content-Length', data.length);
-        
-        // Send the PDF data
-        res.send(data);
-      });
-    } catch (pdfError) {
-      console.error('Error generating PDF:', pdfError);
-      res.status(500).json({ message: 'Failed to generate PDF', error: pdfError.message });
-    }
+
+    const pdfPath = await generateInvoicePDF(invoice);
+    res.download(pdfPath);
   } catch (error) {
-    console.error('Error in PDF controller:', error);
     res.status(500).json({ message: 'Failed to generate PDF', error: error.message });
   }
 };
