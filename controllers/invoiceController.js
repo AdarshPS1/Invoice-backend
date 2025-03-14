@@ -1,6 +1,6 @@
 const Invoice = require('../models/Invoice');
 const Client = require('../models/Client');
-const generateInvoicePDF = require('../utils/pdfKitGenerator');
+const generateInvoicePDF = require('../utils/pdfGenerator');
 
 // Get all invoices
 const getInvoices = async (req, res) => {

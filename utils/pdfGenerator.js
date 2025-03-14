@@ -78,6 +78,8 @@ function convertAmountToWords(amount) {
 }
 
 const generateInvoicePDF = async (invoice) => {
+  let browser = null;
+  
   try {
     console.log('Received invoice data:', {
       invoiceNumber: invoice?.invoiceNumber,
@@ -157,15 +159,13 @@ const generateInvoicePDF = async (invoice) => {
 
     const compiledHtml = template(data);
 
-    // Launch puppeteer with specific args to avoid issues in cloud environments
-    const browser = await puppeteer.launch({
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      headless: 'new'
-    });
-    
-    const page = await browser.newPage();
-    await page.setContent(compiledHtml);
+    // Create the invoices directory if it doesn't exist
+    const invoicesDir = path.join(__dirname, '..', 'invoices');
+    if (!fs.existsSync(invoicesDir)) {
+      fs.mkdirSync(invoicesDir, { recursive: true });
+    }
 
+    // Sanitize the filename
     const sanitizeFilename = (filename) => {
       if (!filename || typeof filename !== 'string') {
         console.error('Invalid filename:', filename);
@@ -174,20 +174,67 @@ const generateInvoicePDF = async (invoice) => {
       return filename.replace(/[\/\\?%*:|"<>]/g, '-');
     };
 
-    const invoicesDir = path.join(__dirname, '..', 'invoices');
-    if (!fs.existsSync(invoicesDir)) {
-      fs.mkdirSync(invoicesDir, { recursive: true });
-    }
-
     const pdfPath = path.join(invoicesDir, `Invoice_${sanitizeFilename(invoice.invoiceNumber)}.pdf`);
 
-    await page.pdf({ path: pdfPath, format: 'A4' });
+    console.log('Launching Puppeteer...');
+    
+    // Launch puppeteer with specific args to avoid issues in cloud environments
+    browser = await puppeteer.launch({
+      args: [
+        '--no-sandbox', 
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+        '--disable-gpu'
+      ],
+      headless: 'new'
+    });
+    
+    console.log('Puppeteer launched successfully');
+    
+    const page = await browser.newPage();
+    console.log('Setting page content...');
+    await page.setContent(compiledHtml);
+    
+    console.log('Generating PDF...');
+    await page.pdf({ 
+      path: pdfPath, 
+      format: 'A4',
+      printBackground: true,
+      margin: {
+        top: '10mm',
+        right: '10mm',
+        bottom: '10mm',
+        left: '10mm'
+      }
+    });
 
-    await browser.close();
     console.log('PDF generated successfully at:', pdfPath);
+    
+    // Close the browser
+    if (browser) {
+      console.log('Closing browser...');
+      await browser.close();
+      browser = null;
+    }
+    
     return pdfPath;
   } catch (err) {
     console.error('Error generating PDF:', err);
+    
+    // Make sure to close the browser in case of error
+    if (browser) {
+      try {
+        console.log('Closing browser after error...');
+        await browser.close();
+      } catch (closeErr) {
+        console.error('Error closing browser:', closeErr);
+      }
+    }
+    
     throw new Error(`PDF generation failed: ${err.message}`);
   }
 };
