@@ -1,6 +1,9 @@
-const Invoice = require('../models/Invoice');
-const Client = require('../models/Client');
-const generateInvoicePDF = require('../utils/pdfGenerator');
+const Invoice = require('../models/invoiceModel');
+const Item = require('../models/itemModel');
+const Client = require('../models/clientModel');
+const fs = require('fs');
+const path = require('path');
+const { generateInvoicePDF } = require('../utils/pdfGenerator');
 
 // Get all invoices
 const getInvoices = async (req, res) => {
@@ -175,48 +178,220 @@ const getInvoicePayments = async (req, res) => {
 // Generate invoice PDF
 const generateInvoicePDFController = async (req, res) => {
   try {
-    console.log('Generating PDF for invoice ID:', req.params.id);
-    
-    const invoice = await Invoice.findById(req.params.id).populate('client');
+    const invoiceId = req.params.id;
+    console.log('Generating PDF for invoice ID:', invoiceId);
+
+    // Find the invoice
+    const invoice = await Invoice.findById(invoiceId)
+      .populate('client')
+      .populate('items.item');
+
     if (!invoice) {
-      console.error('Invoice not found:', req.params.id);
+      console.error('Invoice not found:', invoiceId);
       return res.status(404).json({ message: 'Invoice not found' });
     }
+
+    console.log('Invoice found, preparing data for PDF generation');
     
-    console.log('Found invoice:', {
-      id: invoice._id,
+    // Prepare data for PDF generation
+    const invoiceData = {
       invoiceNumber: invoice.invoiceNumber,
-      client: invoice.client ? invoice.client.name : 'Unknown',
-      items: invoice.items ? invoice.items.length : 0
-    });
+      date: invoice.date,
+      dueDate: invoice.dueDate,
+      clientName: invoice.client.name,
+      clientEmail: invoice.client.email,
+      clientPhone: invoice.client.phone,
+      clientAddress: invoice.client.address,
+      currency: invoice.currency || 'INR',
+      paymentTerms: invoice.paymentTerms || 'Net 30',
+      items: invoice.items.map(item => ({
+        description: item.description,
+        sac: item.sac || '998314',
+        quantity: item.quantity,
+        rate: item.rate,
+        amount: (item.quantity * item.rate).toFixed(2)
+      })),
+      totalAmount: invoice.totalAmount.toFixed(2),
+      amountInWords: convertNumberToWords(invoice.totalAmount)
+    };
+
+    console.log('Calling PDF generator');
     
-    try {
-      const pdfPath = await generateInvoicePDF(invoice);
-      console.log('PDF generated successfully at:', pdfPath);
+    // Generate PDF
+    const result = await generateInvoicePDF(invoiceData);
+    
+    console.log('PDF generation result:', result);
+    
+    // Check if we have a PDF or HTML fallback
+    if (result.pdfPath && fs.existsSync(result.pdfPath)) {
+      console.log('Sending PDF file');
       
-      // Set appropriate headers for PDF download
+      // Set headers for PDF download
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="Invoice_${invoice.invoiceNumber}.pdf"`);
       
       // Send the file
-      res.download(pdfPath, `Invoice_${invoice.invoiceNumber}.pdf`, (err) => {
-        if (err) {
-          console.error('Error sending PDF file:', err);
-          // Don't send another response if headers are already sent
-          if (!res.headersSent) {
-            res.status(500).json({ message: 'Error sending PDF file', error: err.message });
-          }
+      const fileStream = fs.createReadStream(result.pdfPath);
+      fileStream.pipe(res);
+      
+      // Handle errors in the stream
+      fileStream.on('error', (err) => {
+        console.error('Error streaming PDF file:', err);
+        if (!res.headersSent) {
+          res.status(500).json({ message: 'Error streaming PDF file' });
         }
       });
-    } catch (pdfError) {
-      console.error('Error generating PDF:', pdfError);
-      res.status(500).json({ message: 'Failed to generate PDF', error: pdfError.message });
+    } 
+    else if (result.htmlPath && fs.existsSync(result.htmlPath)) {
+      console.log('Sending HTML fallback');
+      
+      // Set headers for HTML
+      res.setHeader('Content-Type', 'text/html');
+      res.setHeader('Content-Disposition', `inline; filename="Invoice_${invoice.invoiceNumber}.html"`);
+      
+      // Send the HTML file
+      const fileStream = fs.createReadStream(result.htmlPath);
+      fileStream.pipe(res);
+      
+      // Handle errors in the stream
+      fileStream.on('error', (err) => {
+        console.error('Error streaming HTML file:', err);
+        if (!res.headersSent) {
+          res.status(500).json({ message: 'Error streaming HTML file' });
+        }
+      });
+    } 
+    else {
+      console.log('Generating simple HTML response');
+      
+      // Generate a simple HTML response
+      const htmlContent = generateSimpleInvoiceHtml(invoiceData);
+      
+      res.setHeader('Content-Type', 'text/html');
+      res.send(htmlContent);
     }
   } catch (error) {
-    console.error('Error in PDF controller:', error);
-    res.status(500).json({ message: 'Failed to generate PDF', error: error.message });
+    console.error('Error in generateInvoicePDFController:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ message: 'Error generating invoice document', error: error.message });
+    }
   }
 };
+
+// Helper function to generate a simple HTML invoice
+function generateSimpleInvoiceHtml(invoice) {
+  // Calculate total
+  let total = 0;
+  const itemsHtml = invoice.items.map((item, index) => {
+    const amount = parseFloat(item.amount) || 0;
+    total += amount;
+    return `
+      <tr>
+        <td>${index + 1}</td>
+        <td>${item.description}</td>
+        <td>${item.quantity}</td>
+        <td>${item.rate}</td>
+        <td>${amount.toFixed(2)}</td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Invoice ${invoice.invoiceNumber}</title>
+      <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h1 { color: #333; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #f2f2f2; }
+        .total { font-weight: bold; text-align: right; }
+        .header, .client-info { margin-bottom: 20px; }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1>INVOICE #${invoice.invoiceNumber}</h1>
+        <p>Date: ${invoice.date}</p>
+        <p>Due Date: ${invoice.dueDate}</p>
+      </div>
+      
+      <div class="client-info">
+        <h2>Bill To:</h2>
+        <p>${invoice.clientName}</p>
+        <p>Email: ${invoice.clientEmail}</p>
+        <p>Phone: ${invoice.clientPhone}</p>
+        <p>Address: ${invoice.clientAddress}</p>
+      </div>
+      
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Description</th>
+            <th>Quantity</th>
+            <th>Rate</th>
+            <th>Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${itemsHtml}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="4" class="total">Total:</td>
+            <td>${total.toFixed(2)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      
+      <p>Amount in words: ${invoice.amountInWords}</p>
+      <p>Thank you for your business!</p>
+    </body>
+    </html>
+  `;
+}
+
+// Helper function to convert number to words
+function convertNumberToWords(number) {
+  const ones = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
+    'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+  const tens = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+  
+  const numString = number.toString();
+  
+  if (number < 0) return 'minus ' + convertNumberToWords(Math.abs(number));
+  if (number === 0) return 'zero';
+  
+  // Handle decimal part
+  if (numString.includes('.')) {
+    const parts = numString.split('.');
+    return convertNumberToWords(parseInt(parts[0])) + ' point ' + 
+           (parts[1] ? convertNumberToWords(parseInt(parts[1])) : 'zero');
+  }
+  
+  if (number < 20) return ones[number];
+  
+  if (number < 100) {
+    return tens[Math.floor(number / 10)] + (number % 10 ? ' ' + ones[number % 10] : '');
+  }
+  
+  if (number < 1000) {
+    return ones[Math.floor(number / 100)] + ' hundred' + (number % 100 ? ' and ' + convertNumberToWords(number % 100) : '');
+  }
+  
+  if (number < 100000) {
+    return convertNumberToWords(Math.floor(number / 1000)) + ' thousand' + (number % 1000 ? ' ' + convertNumberToWords(number % 1000) : '');
+  }
+  
+  if (number < 10000000) {
+    return convertNumberToWords(Math.floor(number / 100000)) + ' lakh' + (number % 100000 ? ' ' + convertNumberToWords(number % 100000) : '');
+  }
+  
+  return convertNumberToWords(Math.floor(number / 10000000)) + ' crore' + (number % 10000000 ? ' ' + convertNumberToWords(number % 10000000) : '');
+}
 
 module.exports = {
   getInvoices,
