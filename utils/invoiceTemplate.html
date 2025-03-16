@@ -9,22 +9,25 @@
             size: A4;
             margin: 0;
         }
-        body {
+        html, body {
             font-family: Arial, sans-serif;
             margin: 0;
             padding: 0;
             font-size: 12px;
             line-height: 1.4;
             color: #333;
+            width: 100%;
+            height: 100%;
         }
         .invoice-container {
-            width: 100%;
-            max-width: 800px;
+            width: 210mm;
+            min-height: 297mm;
             margin: 0 auto;
-            padding: 20px;
+            padding: 10mm;
             box-sizing: border-box;
             border: 1px solid #000;
             background-color: white;
+            position: relative;
         }
         .export-header {
             text-align: center;
@@ -74,6 +77,11 @@
             width: 100%;
             border-collapse: collapse;
             margin-bottom: 10px;
+            page-break-inside: auto;
+        }
+        tr {
+            page-break-inside: avoid;
+            page-break-after: auto;
         }
         th, td {
             border: 1px solid #000;
@@ -101,6 +109,8 @@
         }
         .footer-section {
             display: flex;
+            position: relative;
+            min-height: 150px;
         }
         .declaration {
             width: 60%;
@@ -123,6 +133,15 @@
             margin-left: auto;
             margin-right: auto;
             padding-top: 5px;
+        }
+        .bank-table {
+            border: none;
+            margin-top: 5px;
+            width: 100%;
+        }
+        .bank-table td {
+            border: none;
+            padding: 2px;
         }
     </style>
 </head>
@@ -229,26 +248,26 @@
                 
                 <div class="bank-details">
                     <strong>Company's Bank Details:</strong><br>
-                    <table style="border: none; margin-top: 5px;">
+                    <table class="bank-table">
                         <tr>
-                            <td style="border: none; padding: 2px;">Beneficiary Name:</td>
-                            <td style="border: none; padding: 2px;">InnoAI Technologies Pvt Ltd</td>
+                            <td>Beneficiary Name:</td>
+                            <td>InnoAI Technologies Pvt Ltd</td>
                         </tr>
                         <tr>
-                            <td style="border: none; padding: 2px;">Bank Name:</td>
-                            <td style="border: none; padding: 2px;">HDFC Bank</td>
+                            <td>Bank Name:</td>
+                            <td>HDFC Bank</td>
                         </tr>
                         <tr>
-                            <td style="border: none; padding: 2px;">A/c No.:</td>
-                            <td style="border: none; padding: 2px;">50100123456789</td>
+                            <td>A/c No.:</td>
+                            <td>50100123456789</td>
                         </tr>
                         <tr>
-                            <td style="border: none; padding: 2px;">IFSC Code:</td>
-                            <td style="border: none; padding: 2px;">HDFC0001234</td>
+                            <td>IFSC Code:</td>
+                            <td>HDFC0001234</td>
                         </tr>
                         <tr>
-                            <td style="border: none; padding: 2px;">Branch:</td>
-                            <td style="border: none; padding: 2px;">Thiruvananthapuram</td>
+                            <td>Branch:</td>
+                            <td>Thiruvananthapuram</td>
                         </tr>
                     </table>
                 </div>

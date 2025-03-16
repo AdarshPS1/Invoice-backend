@@ -3,6 +3,8 @@ const Client = require('../models/Client');
 const generateInvoicePDF = require('../utils/pdfGenerator');
 const generateFallbackPDF = require('../utils/fallbackPdfGenerator');
 const fs = require('fs');
+const path = require('path');
+const jwt = require('jsonwebtoken');
 
 // Get all invoices
 const getInvoices = async (req, res) => {
@@ -195,40 +197,64 @@ const getInvoicePayments = async (req, res) => {
 // Generate invoice PDF
 const generateInvoicePDFController = async (req, res) => {
   try {
-    console.log('Generating PDF for invoice ID:', req.params.id);
+    const logger = require('../utils/logger');
+    logger.info(`Generating PDF for invoice ID: ${req.params.id}`);
     
     const invoice = await Invoice.findById(req.params.id).populate('client');
     if (!invoice) {
-      console.log('Invoice not found with ID:', req.params.id);
+      logger.warn(`Invoice not found with ID: ${req.params.id}`);
       return res.status(404).json({ message: 'Invoice not found' });
     }
     
-    console.log('Found invoice:', {
-      id: invoice._id,
-      invoiceNumber: invoice.invoiceNumber,
-      client: invoice.client?.name,
-      items: invoice.items?.length
-    });
+    logger.info(`Found invoice: ${invoice._id}, number: ${invoice.invoiceNumber}, client: ${invoice.client?.name}`);
 
-    let pdfPath;
-    try {
-      // Try using Puppeteer first
-      console.log('Attempting to generate PDF with Puppeteer...');
-      pdfPath = await generateInvoicePDF(invoice);
-      console.log('PDF generated successfully with Puppeteer at path:', pdfPath);
-    } catch (puppeteerError) {
-      console.error('Puppeteer PDF generation failed:', puppeteerError);
-      console.log('Falling back to PDFKit generator...');
-      
-      // If Puppeteer fails, use the fallback generator
-      pdfPath = await generateFallbackPDF(invoice);
-      console.log('Fallback PDF generated successfully at path:', pdfPath);
+    // Check if PDF already exists in cache
+    const invoicesDir = path.join(__dirname, '..', 'invoices');
+    if (!fs.existsSync(invoicesDir)) {
+      fs.mkdirSync(invoicesDir, { recursive: true });
+    }
+    
+    const sanitizeFilename = (filename) => {
+      if (!filename || typeof filename !== 'string') {
+        return 'Invoice_Unknown_' + Date.now();
+      }
+      return filename.replace(/[\/\\?%*:|"<>]/g, '-');
+    };
+    
+    const pdfFilename = `Invoice_${sanitizeFilename(invoice.invoiceNumber)}.pdf`;
+    const pdfPath = path.join(invoicesDir, pdfFilename);
+    
+    // Check if we need to regenerate the PDF
+    const shouldRegeneratePdf = !fs.existsSync(pdfPath) || req.query.refresh === 'true';
+    
+    if (shouldRegeneratePdf) {
+      logger.info('Generating new PDF...');
+      try {
+        // Always try Puppeteer first for consistent appearance
+        logger.info('Attempting to generate PDF with Puppeteer...');
+        const generatedPath = await generateInvoicePDF(invoice);
+        logger.info(`PDF generated successfully with Puppeteer at path: ${generatedPath}`);
+      } catch (puppeteerError) {
+        logger.error(`Puppeteer PDF generation failed: ${puppeteerError.message}`);
+        logger.info('Falling back to PDFKit generator...');
+        
+        // If Puppeteer fails, use the fallback generator
+        try {
+          const fallbackPath = await generateFallbackPDF(invoice);
+          logger.info(`Fallback PDF generated successfully at path: ${fallbackPath}`);
+        } catch (fallbackError) {
+          logger.error(`Fallback PDF generation also failed: ${fallbackError.message}`);
+          throw new Error('Both PDF generation methods failed');
+        }
+      }
+    } else {
+      logger.info(`Using cached PDF from: ${pdfPath}`);
     }
     
     // Send the PDF file
     res.download(pdfPath, `Invoice_${invoice.invoiceNumber}.pdf`, (err) => {
       if (err) {
-        console.error('Error sending PDF file:', err);
+        logger.error(`Error sending PDF file: ${err.message}`);
         // Only send error response if headers haven't been sent yet
         if (!res.headersSent) {
           res.status(500).json({ message: 'Error sending PDF file', error: err.message });
@@ -236,10 +262,9 @@ const generateInvoicePDFController = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error generating PDF:', error);
-    if (error.stack) {
-      console.error('Stack trace:', error.stack);
-    }
+    const logger = require('../utils/logger');
+    logger.error(`Error generating PDF: ${error.message}`);
+    logger.error(`Stack trace: ${error.stack || 'No stack trace available'}`);
     
     // Only send error response if headers haven't been sent yet
     if (!res.headersSent) {
@@ -255,26 +280,78 @@ const generateInvoicePDFController = async (req, res) => {
 // View invoice PDF directly in browser
 const viewInvoicePDFController = async (req, res) => {
   try {
-    console.log('Viewing PDF for invoice ID:', req.params.id);
+    const logger = require('../utils/logger');
+    logger.info(`Viewing PDF for invoice ID: ${req.params.id}`);
+    
+    // Verify token if provided
+    if (req.query.token) {
+      try {
+        jwt.verify(req.query.token, process.env.JWT_SECRET);
+        logger.info('Token verification successful');
+      } catch (tokenError) {
+        logger.error(`Token verification failed: ${tokenError.message}`);
+        return res.status(401).json({ message: 'Invalid or expired token' });
+      }
+    } else {
+      // If no token, check if user is authenticated through session
+      if (!req.user) {
+        logger.warn('Unauthorized access attempt to view PDF');
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+    }
     
     const invoice = await Invoice.findById(req.params.id).populate('client');
     if (!invoice) {
-      console.log('Invoice not found with ID:', req.params.id);
+      logger.warn(`Invoice not found with ID: ${req.params.id}`);
       return res.status(404).json({ message: 'Invoice not found' });
     }
     
-    let pdfPath;
-    try {
-      // Try using Puppeteer first
-      pdfPath = await generateInvoicePDF(invoice);
-    } catch (puppeteerError) {
-      console.error('Puppeteer PDF generation failed, using fallback');
-      // If Puppeteer fails, use the fallback generator
-      pdfPath = await generateFallbackPDF(invoice);
+    // Check if PDF already exists in cache
+    const invoicesDir = path.join(__dirname, '..', 'invoices');
+    if (!fs.existsSync(invoicesDir)) {
+      fs.mkdirSync(invoicesDir, { recursive: true });
     }
     
-    // Check if file exists
+    const sanitizeFilename = (filename) => {
+      if (!filename || typeof filename !== 'string') {
+        return 'Invoice_Unknown_' + Date.now();
+      }
+      return filename.replace(/[\/\\?%*:|"<>]/g, '-');
+    };
+    
+    const pdfFilename = `Invoice_${sanitizeFilename(invoice.invoiceNumber)}.pdf`;
+    const pdfPath = path.join(invoicesDir, pdfFilename);
+    
+    // Check if we need to regenerate the PDF
+    const shouldRegeneratePdf = !fs.existsSync(pdfPath) || req.query.refresh === 'true';
+    
+    if (shouldRegeneratePdf) {
+      logger.info('Generating new PDF for viewing...');
+      try {
+        // Always try Puppeteer first for consistent appearance
+        logger.info('Attempting to generate PDF with Puppeteer for viewing...');
+        const generatedPath = await generateInvoicePDF(invoice);
+        logger.info(`PDF generated successfully with Puppeteer at path: ${generatedPath}`);
+      } catch (puppeteerError) {
+        logger.error(`Puppeteer PDF generation failed: ${puppeteerError.message}`);
+        logger.info('Falling back to PDFKit generator...');
+        
+        // If Puppeteer fails, use the fallback generator
+        try {
+          const fallbackPath = await generateFallbackPDF(invoice);
+          logger.info(`Fallback PDF generated successfully at path: ${fallbackPath}`);
+        } catch (fallbackError) {
+          logger.error(`Fallback PDF generation also failed: ${fallbackError.message}`);
+          throw new Error('Both PDF generation methods failed');
+        }
+      }
+    } else {
+      logger.info(`Using cached PDF for viewing from: ${pdfPath}`);
+    }
+    
+    // Check if file exists before streaming
     if (!fs.existsSync(pdfPath)) {
+      logger.error(`PDF file not found at path: ${pdfPath}`);
       return res.status(404).json({ message: 'PDF file not found' });
     }
     
@@ -282,23 +359,27 @@ const viewInvoicePDFController = async (req, res) => {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="Invoice_${invoice.invoiceNumber}.pdf"`);
     
-    // Stream the file instead of loading it all into memory
+    // Stream the file
     const fileStream = fs.createReadStream(pdfPath);
     fileStream.pipe(res);
     
     // Handle errors in the stream
     fileStream.on('error', (err) => {
-      console.error('Error streaming PDF:', err);
+      logger.error(`Error streaming PDF: ${err.message}`);
       if (!res.headersSent) {
         res.status(500).json({ message: 'Error streaming PDF', error: err.message });
       }
     });
   } catch (error) {
-    console.error('Error viewing PDF:', error);
+    const logger = require('../utils/logger');
+    logger.error(`Error viewing PDF: ${error.message}`);
+    logger.error(`Stack trace: ${error.stack || 'No stack trace available'}`);
+    
     if (!res.headersSent) {
       res.status(500).json({ 
         message: 'Failed to view PDF', 
-        error: error.message 
+        error: error.message,
+        details: 'This may be due to server configuration issues with PDF generation.'
       });
     }
   }
