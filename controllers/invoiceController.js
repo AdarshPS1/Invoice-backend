@@ -64,9 +64,9 @@ const createInvoice = async (req, res) => {
 
 // Update an invoice
 const updateInvoice = async (req, res) => {
-  const { totalAmount, currency } = req.body;
+  const { client, amount, dueDate, items, currency } = req.body;
 
-  console.log('Update request data:', { totalAmount, currency });
+  console.log('Update request data:', req.body);
 
   try {
     const invoice = await Invoice.findById(req.params.id);
@@ -74,14 +74,31 @@ const updateInvoice = async (req, res) => {
       return res.status(404).json({ message: 'Invoice not found' });
     }
 
+    // Check if client exists if client ID is provided
+    if (client) {
+      const existingClient = await Client.findById(client);
+      if (!existingClient) {
+        return res.status(404).json({ message: 'Client not found' });
+      }
+      invoice.client = client;
+    }
+
+    // Calculate total paid amount
     const paidAmount = invoice.payments.reduce((sum, payment) => sum + payment.amount, 0);
-    if (totalAmount < paidAmount) {
+    
+    // Validate that new amount is not less than paid amount
+    if (amount !== undefined && amount < paidAmount) {
       return res.status(400).json({ message: 'Invoice amount cannot be less than paid amount' });
     }
 
-    invoice.totalAmount = totalAmount;
-    invoice.currency = currency || invoice.currency;
-    if (invoice.status === 'Paid' && totalAmount > paidAmount) {
+    // Update invoice fields if provided
+    if (amount !== undefined) invoice.amount = amount;
+    if (dueDate) invoice.dueDate = dueDate;
+    if (currency) invoice.currency = currency;
+    if (items) invoice.items = items;
+
+    // Update status if needed
+    if (invoice.status === 'Paid' && amount > paidAmount) {
       invoice.status = 'Pending';
     }
 
@@ -93,6 +110,7 @@ const updateInvoice = async (req, res) => {
 
     res.json(invoice);
   } catch (error) {
+    console.error('Error updating invoice:', error);
     res.status(500).json({ message: 'Failed to update invoice', error: error.message });
   }
 };
