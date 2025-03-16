@@ -200,13 +200,18 @@ const generateInvoicePDFController = async (req, res) => {
     const logger = require('../utils/logger');
     logger.info(`Generating PDF for invoice ID: ${req.params.id}`);
     
-    const invoice = await Invoice.findById(req.params.id).populate('client');
+    // Fetch the invoice with populated client data
+    const invoice = await Invoice.findById(req.params.id)
+      .populate('client')
+      .lean(); // Use lean() to get a plain JavaScript object
+    
     if (!invoice) {
       logger.warn(`Invoice not found with ID: ${req.params.id}`);
       return res.status(404).json({ message: 'Invoice not found' });
     }
     
     logger.info(`Found invoice: ${invoice._id}, number: ${invoice.invoiceNumber}, client: ${invoice.client?.name}`);
+    logger.debug(`Invoice data: ${JSON.stringify(invoice)}`);
 
     // Check if PDF already exists in cache
     const invoicesDir = path.join(__dirname, '..', 'invoices');
@@ -300,11 +305,17 @@ const viewInvoicePDFController = async (req, res) => {
       }
     }
     
-    const invoice = await Invoice.findById(req.params.id).populate('client');
+    // Fetch the invoice with populated client data
+    const invoice = await Invoice.findById(req.params.id)
+      .populate('client')
+      .lean(); // Use lean() to get a plain JavaScript object
+    
     if (!invoice) {
       logger.warn(`Invoice not found with ID: ${req.params.id}`);
       return res.status(404).json({ message: 'Invoice not found' });
     }
+    
+    logger.debug(`Invoice data for viewing: ${JSON.stringify(invoice)}`);
     
     // Check if PDF already exists in cache
     const invoicesDir = path.join(__dirname, '..', 'invoices');

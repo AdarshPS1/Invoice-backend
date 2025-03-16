@@ -99,10 +99,13 @@ const generateFallbackPDF = async (invoice) => {
       throw new Error('Missing invoiceNumber in invoice data');
     }
 
-    // Calculate total amount
+    // Log the full invoice data for debugging
+    logger.debug(`Full invoice data: ${JSON.stringify(invoice)}`);
+
+    // Calculate total amount from items
     const totalAmount = Array.isArray(invoice.items) 
-      ? invoice.items.reduce((sum, item) => sum + ((item.quantity || 0) * (item.rate || 0)), 0)
-      : 0;
+      ? invoice.items.reduce((sum, item) => sum + ((parseFloat(item.quantity) || 0) * (parseFloat(item.rate) || 0)), 0)
+      : parseFloat(invoice.amount) || 0;
 
     // Create directory for invoices if it doesn't exist
     const invoicesDir = path.join(__dirname, '..', 'invoices');
@@ -159,7 +162,7 @@ const generateFallbackPDF = async (invoice) => {
     doc.fontSize(10).text('Invoice No.', detailsX, headerY + 5);
     doc.fontSize(10).text(invoice.invoiceNumber, detailsX, headerY + 20);
     doc.fontSize(10).text('Dated', detailsX + detailsWidth + 10, headerY + 5);
-    doc.fontSize(10).text(formatDate(invoice.date || new Date()), detailsX + detailsWidth + 10, headerY + 20);
+    doc.fontSize(10).text(formatDate(invoice.date || invoice.createdAt || new Date()), detailsX + detailsWidth + 10, headerY + 20);
     
     // Second row
     doc.rect(180, headerY + 40, detailsWidth, 40).stroke();
@@ -232,8 +235,19 @@ const generateFallbackPDF = async (invoice) => {
     // Table rows
     let tableRow = tableTop + 20;
     
-    if (Array.isArray(invoice.items)) {
-      invoice.items.forEach((item, i) => {
+    // Ensure all invoice items have the correct properties
+    const processedItems = Array.isArray(invoice.items) 
+      ? invoice.items.map((item, index) => ({
+          description: item.description || 'No description',
+          sac: item.sac || '998314',
+          quantity: parseFloat(item.quantity) || 1,
+          rate: parseFloat(item.rate) || 0,
+          amount: (parseFloat(item.quantity) || 1) * (parseFloat(item.rate) || 0)
+        }))
+      : [];
+    
+    if (processedItems.length > 0) {
+      processedItems.forEach((item, i) => {
         // Check if we need a new page
         if (tableRow > 700) {
           doc.addPage();
@@ -252,14 +266,19 @@ const generateFallbackPDF = async (invoice) => {
         
         // Add row content
         doc.text(i + 1, colPos.no + 2, tableRow + 8, { width: tableWidth * colWidths.no - 4 });
-        doc.text(item.description || 'No description', colPos.desc + 2, tableRow + 8, { width: tableWidth * colWidths.desc - 4 });
-        doc.text(item.sac || 'N/A', colPos.sac + 2, tableRow + 8, { width: tableWidth * colWidths.sac - 4 });
-        doc.text(item.quantity || 1, colPos.qty + 2, tableRow + 8, { width: tableWidth * colWidths.qty - 4 });
-        doc.text(formatCurrency(item.rate || 0, invoice.currency), colPos.rate + 2, tableRow + 8, { width: tableWidth * colWidths.rate - 4 });
-        doc.text(formatCurrency((item.quantity || 0) * (item.rate || 0), invoice.currency), colPos.amount + 2, tableRow + 8, { width: tableWidth * colWidths.amount - 4 });
+        doc.text(item.description, colPos.desc + 2, tableRow + 8, { width: tableWidth * colWidths.desc - 4 });
+        doc.text(item.sac, colPos.sac + 2, tableRow + 8, { width: tableWidth * colWidths.sac - 4 });
+        doc.text(item.quantity.toString(), colPos.qty + 2, tableRow + 8, { width: tableWidth * colWidths.qty - 4 });
+        doc.text(formatCurrency(item.rate, invoice.currency), colPos.rate + 2, tableRow + 8, { width: tableWidth * colWidths.rate - 4 });
+        doc.text(formatCurrency(item.amount, invoice.currency), colPos.amount + 2, tableRow + 8, { width: tableWidth * colWidths.amount - 4 });
         
         tableRow += 25;
       });
+    } else {
+      // If no items, add a placeholder row
+      doc.rect(30, tableRow, tableWidth, 25).stroke();
+      doc.text('No items found', colPos.desc + 2, tableRow + 8, { width: tableWidth * colWidths.desc - 4 });
+      tableRow += 25;
     }
 
     // Add total row

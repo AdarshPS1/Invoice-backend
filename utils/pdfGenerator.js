@@ -104,12 +104,14 @@ const generateInvoicePDF = async (invoice) => {
       throw new Error('Missing invoiceNumber in invoice data');
     }
 
+    // Log the full invoice data for debugging
+    logger.debug(`Full invoice data: ${JSON.stringify(invoice)}`);
     logger.info(`Processing invoice: ${invoice.invoiceNumber} for client: ${invoice.client?.name || 'Unknown'}`);
 
-    // Calculate total amount
+    // Calculate total amount from items
     const totalAmount = Array.isArray(invoice.items) 
-      ? invoice.items.reduce((sum, item) => sum + ((item.quantity || 0) * (item.rate || 0)), 0)
-      : 0;
+      ? invoice.items.reduce((sum, item) => sum + ((parseFloat(item.quantity) || 0) * (parseFloat(item.rate) || 0)), 0)
+      : parseFloat(invoice.amount) || 0;
 
     // Format date values
     const formatDate = (dateString) => {
@@ -133,25 +135,36 @@ const generateInvoicePDF = async (invoice) => {
     const html = fs.readFileSync(templatePath, 'utf8');
     const template = Handlebars.compile(html);
 
+    // Ensure all invoice items have the correct properties
+    const processedItems = Array.isArray(invoice.items) 
+      ? invoice.items.map((item, index) => ({
+          description: item.description || 'No description',
+          sac: item.sac || '998314',
+          quantity: parseFloat(item.quantity) || 1,
+          rate: parseFloat(item.rate) || 0,
+          amount: (parseFloat(item.quantity) || 1) * (parseFloat(item.rate) || 0)
+        }))
+      : [];
+
+    // Create the data object for the template
     const data = {
       invoiceNumber: invoice.invoiceNumber,
-      date: formatDate(invoice.date || new Date()),
+      date: formatDate(invoice.date || invoice.createdAt || new Date()),
       dueDate: formatDate(invoice.dueDate),
       clientName: invoice.client?.name || 'N/A',
       clientEmail: invoice.client?.email || 'N/A',
       clientPhone: invoice.client?.phone || 'N/A',
-      items: Array.isArray(invoice.items) ? invoice.items.map((item) => ({
-        description: item.description || 'No description',
-        sac: item.sac || '998314',
-        quantity: item.quantity || 1,
-        rate: formatCurrency(item.rate || 0, invoice.currency),
-        amount: formatCurrency((item.quantity || 0) * (item.rate || 0), invoice.currency),
-      })) : [],
+      items: processedItems.map(item => ({
+        ...item,
+        rate: formatCurrency(item.rate, invoice.currency),
+        amount: formatCurrency(item.amount, invoice.currency)
+      })),
       totalAmount: formatCurrency(totalAmount, invoice.currency),
       amountInWords: convertAmountToWords(Math.round(totalAmount)),
       currency: invoice.currency || 'USD',
     };
 
+    logger.debug(`Template data: ${JSON.stringify(data)}`);
     logger.debug('Compiled template data successfully');
 
     // Generate HTML content
