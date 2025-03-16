@@ -133,7 +133,21 @@ const generateInvoicePDF = async (invoice) => {
 
     const compiledHtml = template(data);
 
-    const browser = await puppeteer.launch();
+    // Configure Puppeteer to work in a cloud environment
+    const browser = await puppeteer.launch({
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+        '--disable-gpu'
+      ],
+      headless: 'new'
+    });
+    
     const page = await browser.newPage();
     await page.setContent(compiledHtml);
 
@@ -158,6 +172,9 @@ const generateInvoicePDF = async (invoice) => {
     return pdfPath;
   } catch (err) {
     console.error('Error generating PDF:', err.message);
+    if (err.stack) {
+      console.error('Stack trace:', err.stack);
+    }
     throw err;
   }
 };

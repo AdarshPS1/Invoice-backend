@@ -193,15 +193,47 @@ const getInvoicePayments = async (req, res) => {
 // Generate invoice PDF
 const generateInvoicePDFController = async (req, res) => {
   try {
+    console.log('Generating PDF for invoice ID:', req.params.id);
+    
     const invoice = await Invoice.findById(req.params.id).populate('client');
     if (!invoice) {
+      console.log('Invoice not found with ID:', req.params.id);
       return res.status(404).json({ message: 'Invoice not found' });
     }
+    
+    console.log('Found invoice:', {
+      id: invoice._id,
+      invoiceNumber: invoice.invoiceNumber,
+      client: invoice.client?.name,
+      items: invoice.items?.length
+    });
 
     const pdfPath = await generateInvoicePDF(invoice);
-    res.download(pdfPath);
+    console.log('PDF generated successfully at path:', pdfPath);
+    
+    res.download(pdfPath, `Invoice_${invoice.invoiceNumber}.pdf`, (err) => {
+      if (err) {
+        console.error('Error sending PDF file:', err);
+        // Only send error response if headers haven't been sent yet
+        if (!res.headersSent) {
+          res.status(500).json({ message: 'Error sending PDF file', error: err.message });
+        }
+      }
+    });
   } catch (error) {
-    res.status(500).json({ message: 'Failed to generate PDF', error: error.message });
+    console.error('Error generating PDF:', error);
+    if (error.stack) {
+      console.error('Stack trace:', error.stack);
+    }
+    
+    // Only send error response if headers haven't been sent yet
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        message: 'Failed to generate PDF', 
+        error: error.message,
+        details: 'This may be due to server configuration issues with Puppeteer.'
+      });
+    }
   }
 };
 
