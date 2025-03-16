@@ -72,6 +72,17 @@ function convertAmountToWords(amount) {
   return result.trim();
 }
 
+// Format date values
+const formatDate = (dateString) => {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  });
+};
+
 const generateFallbackPDF = async (invoice) => {
   try {
     console.log('Using fallback PDF generator for invoice:', invoice.invoiceNumber);
@@ -111,52 +122,84 @@ const generateFallbackPDF = async (invoice) => {
     console.log(`Fallback PDF will be saved to: ${pdfPath}`);
 
     // Create a new PDF document
-    const doc = new PDFDocument({ margin: 50 });
+    const doc = new PDFDocument({ 
+      margin: 40,
+      size: 'A4'
+    });
     
     // Pipe the PDF to a file
     doc.pipe(fs.createWriteStream(pdfPath));
 
-    // Add company logo or header
-    doc.fontSize(20).text('INVOICE', { align: 'center' });
+    // Add header
+    doc.fontSize(16).text('TAX INVOICE', { align: 'center' });
     doc.moveDown();
 
-    // Add invoice details
-    doc.fontSize(12);
-    doc.text(`Invoice Number: ${invoice.invoiceNumber}`);
-    doc.text(`Date: ${invoice.date || new Date().toISOString().split('T')[0]}`);
-    doc.text(`Due Date: ${invoice.dueDate || 'N/A'}`);
-    doc.moveDown();
+    // Add company info box
+    doc.rect(40, doc.y, doc.page.width - 80, 80).stroke();
+    doc.fontSize(12).text('InnoAI Technologies Pvt Ltd', 50, doc.y + 10);
+    doc.fontSize(10).text('VRA A 39, Kallummoodu, Anayara,', 50, doc.y + 5);
+    doc.text('Thiruvananthapuram, Kerala 695029', 50, doc.y + 5);
+    doc.text('GSTIN/UIN: 32AABCI1234A1Z5', 50, doc.y + 5);
+    doc.text('Contact: +91 9876543210 | Email: info@innoai.com', 50, doc.y + 5);
+    
+    // Move down after the box
+    doc.moveDown(4);
+
+    // Add invoice details in a grid
+    const startY = doc.y;
+    
+    // Left column
+    doc.fontSize(10).text('Invoice Number:', 50, startY);
+    doc.text(invoice.invoiceNumber, 150, startY);
+    
+    doc.text('Date:', 50, startY + 20);
+    doc.text(formatDate(invoice.date || new Date()), 150, startY + 20);
+    
+    doc.text('Due Date:', 50, startY + 40);
+    doc.text(formatDate(invoice.dueDate), 150, startY + 40);
+    
+    // Right column
+    doc.text('Currency:', 300, startY);
+    doc.text(invoice.currency || 'USD', 400, startY);
+    
+    doc.text('Status:', 300, startY + 20);
+    doc.text(invoice.status || 'Pending', 400, startY + 20);
+    
+    // Move down after the details
+    doc.moveDown(4);
 
     // Add client information
-    doc.fontSize(14).text('Client Information');
-    doc.fontSize(12);
-    doc.text(`Name: ${invoice.client?.name || 'N/A'}`);
+    doc.fontSize(12).text('Client Information', { underline: true });
+    doc.moveDown(0.5);
+    doc.fontSize(10).text(`Name: ${invoice.client?.name || 'N/A'}`);
     doc.text(`Email: ${invoice.client?.email || 'N/A'}`);
     doc.text(`Phone: ${invoice.client?.phone || 'N/A'}`);
     doc.moveDown();
 
     // Add invoice items table
-    doc.fontSize(14).text('Invoice Items');
-    doc.moveDown();
+    doc.fontSize(12).text('Invoice Items', { underline: true });
+    doc.moveDown(0.5);
 
     // Table headers
     const tableTop = doc.y;
     const itemX = 50;
-    const descriptionX = 100;
-    const quantityX = 300;
-    const rateX = 350;
-    const amountX = 450;
+    const descriptionX = 80;
+    const sacX = 280;
+    const quantityX = 340;
+    const rateX = 400;
+    const amountX = 470;
 
     doc.fontSize(10);
     doc.text('No.', itemX, tableTop);
     doc.text('Description', descriptionX, tableTop);
+    doc.text('SAC', sacX, tableTop);
     doc.text('Qty', quantityX, tableTop);
     doc.text('Rate', rateX, tableTop);
     doc.text('Amount', amountX, tableTop);
 
     // Draw a line
-    doc.moveTo(50, tableTop + 15)
-       .lineTo(550, tableTop + 15)
+    doc.moveTo(40, tableTop + 15)
+       .lineTo(doc.page.width - 40, tableTop + 15)
        .stroke();
 
     // Table rows
@@ -172,6 +215,7 @@ const generateFallbackPDF = async (invoice) => {
         
         doc.text(i + 1, itemX, tableRow);
         doc.text(item.description || 'No description', descriptionX, tableRow, { width: 180 });
+        doc.text(item.sac || '', sacX, tableRow);
         doc.text(item.quantity || 1, quantityX, tableRow);
         doc.text(formatCurrency(item.rate || 0, invoice.currency), rateX, tableRow);
         doc.text(formatCurrency((item.quantity || 0) * (item.rate || 0), invoice.currency), amountX, tableRow);
@@ -181,25 +225,40 @@ const generateFallbackPDF = async (invoice) => {
     }
 
     // Draw a line
-    doc.moveTo(50, tableRow)
-       .lineTo(550, tableRow)
+    doc.moveTo(40, tableRow)
+       .lineTo(doc.page.width - 40, tableRow)
        .stroke();
     
     // Add total
     tableRow += 20;
-    doc.fontSize(12);
-    doc.text('Total:', 350, tableRow);
+    doc.fontSize(10);
+    doc.text('Total:', 400, tableRow);
     doc.text(formatCurrency(totalAmount, invoice.currency), amountX, tableRow);
     
     // Add amount in words
     tableRow += 30;
     doc.fontSize(10);
-    doc.text(`Amount in words: ${convertAmountToWords(totalAmount)} only`, 50, tableRow);
+    doc.text(`Amount in words: ${convertAmountToWords(Math.round(totalAmount))} only`, 50, tableRow);
+    
+    // Add bank details
+    tableRow += 40;
+    doc.fontSize(12).text('Bank Details', 50, tableRow, { underline: true });
+    tableRow += 20;
+    doc.fontSize(10);
+    doc.text('Beneficiary Name: InnoAI Technologies Pvt Ltd', 50, tableRow);
+    doc.text('Bank Name: HDFC Bank', 50, tableRow + 15);
+    doc.text('A/c No.: 50100123456789', 50, tableRow + 30);
+    doc.text('IFSC Code: HDFC0001234', 50, tableRow + 45);
+    doc.text('Branch: Thiruvananthapuram', 50, tableRow + 60);
+    
+    // Add signature
+    doc.text('For InnoAI Technologies Pvt Ltd', 400, tableRow + 60);
+    doc.text('Authorized Signatory', 400, tableRow + 90);
     
     // Add footer
-    doc.fontSize(10);
     const bottomOfPage = doc.page.height - 50;
-    doc.text('Thank you for your business!', 50, bottomOfPage, { align: 'center' });
+    doc.fontSize(8);
+    doc.text('This is a computer-generated invoice and does not require a physical signature.', 50, bottomOfPage, { align: 'center' });
 
     // Finalize the PDF
     doc.end();

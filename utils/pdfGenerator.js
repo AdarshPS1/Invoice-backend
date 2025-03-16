@@ -112,6 +112,17 @@ const generateInvoicePDF = async (invoice) => {
       ? invoice.items.reduce((sum, item) => sum + ((item.quantity || 0) * (item.rate || 0)), 0)
       : 0;
 
+    // Format date values
+    const formatDate = (dateString) => {
+      if (!dateString) return '';
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    };
+
     // Prepare template data
     const templatePath = path.join(__dirname, 'invoiceTemplate.html');
     console.log('Template path:', templatePath);
@@ -125,8 +136,8 @@ const generateInvoicePDF = async (invoice) => {
 
     const data = {
       invoiceNumber: invoice.invoiceNumber,
-      date: invoice.date,
-      dueDate: invoice.dueDate,
+      date: formatDate(invoice.date || new Date()),
+      dueDate: formatDate(invoice.dueDate),
       clientName: invoice.client?.name || 'N/A',
       clientEmail: invoice.client?.email || 'N/A',
       clientPhone: invoice.client?.phone || 'N/A',
@@ -134,26 +145,23 @@ const generateInvoicePDF = async (invoice) => {
         description: item.description || 'No description',
         sac: item.sac || '998314',
         quantity: item.quantity || 1,
-        rate: item.rate || 0,
-        amount: (item.quantity || 0) * (item.rate || 0),
+        rate: formatCurrency(item.rate || 0, invoice.currency),
+        amount: formatCurrency((item.quantity || 0) * (item.rate || 0), invoice.currency),
       })) : [],
-      totalAmount: totalAmount,
-      amountInWords: convertAmountToWords(totalAmount),
+      totalAmount: formatCurrency(totalAmount, invoice.currency),
+      amountInWords: convertAmountToWords(Math.round(totalAmount)),
       currency: invoice.currency || 'USD',
     };
-
-    // Format amounts using the selected currency
-    data.items = data.items.map(item => ({
-      ...item,
-      rate: formatCurrency(item.rate, data.currency),
-      amount: formatCurrency(item.amount, data.currency),
-    }));
-    data.totalAmount = formatCurrency(data.totalAmount, data.currency);
 
     console.log('Compiled template data successfully');
 
     // Generate HTML content
     const compiledHtml = template(data);
+
+    // For debugging - save the compiled HTML to a file
+    const debugHtmlPath = path.join(__dirname, '..', 'invoices', `debug_${invoice.invoiceNumber}.html`);
+    fs.writeFileSync(debugHtmlPath, compiledHtml);
+    console.log(`Debug HTML saved to: ${debugHtmlPath}`);
 
     // Create directory for invoices if it doesn't exist
     const invoicesDir = path.join(__dirname, '..', 'invoices');
@@ -208,24 +216,37 @@ const generateInvoicePDF = async (invoice) => {
     const page = await browser.newPage();
     console.log('New page created');
     
-    // Set content with timeout
+    // Set viewport to A4 size
+    await page.setViewport({
+      width: 794, // A4 width in pixels at 96 DPI
+      height: 1123, // A4 height in pixels at 96 DPI
+      deviceScaleFactor: 2, // Higher resolution
+    });
+    
+    // Set content with timeout and wait for all resources to load
     await page.setContent(compiledHtml, { 
-      waitUntil: 'networkidle0',
+      waitUntil: ['domcontentloaded', 'networkidle0'],
       timeout: 30000 
     });
+    
     console.log('Content set to page');
 
-    // Generate PDF
+    // Wait a moment for any JavaScript to execute and styles to apply
+    await page.waitForTimeout(1000);
+
+    // Generate PDF with proper settings for invoice
     await page.pdf({ 
       path: pdfPath, 
       format: 'A4',
       printBackground: true,
       margin: {
-        top: '1cm',
-        right: '1cm',
-        bottom: '1cm',
-        left: '1cm'
-      }
+        top: '0.4cm',
+        right: '0.4cm',
+        bottom: '0.4cm',
+        left: '0.4cm'
+      },
+      preferCSSPageSize: true,
+      displayHeaderFooter: false
     });
     
     console.log('PDF generated successfully');

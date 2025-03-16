@@ -1,93 +1,3 @@
-<!-- <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Invoice</title>
-    <style>
-        body { font-family: Arial, sans-serif; padding: 30px; }
-        h1 { text-align: center; }
-        .header, .footer { text-align: center; margin-bottom: 20px; }
-        .invoice-details, .client-details, .bank-details { margin-bottom: 20px; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
-        .amount-in-words { margin-top: 20px; font-style: italic; }
-        .signature { margin-top: 50px; text-align: right; }
-    </style>
-</head>
-<body>
-    <h1>Tax Invoice</h1>
-    
-    <div class="header">
-        <strong>InnoAI Technologies Pvt Ltd</strong><br>
-        VRA A 39, Kallummoodu, Anayara, Thiruvananthapuram, Kerala 695029<br>
-        GSTIN/UIN: 123456789ABCDE | PAN: AAAPL1234C
-    </div>
-
-    <div class="invoice-details">
-        <strong>Invoice No:</strong> {{invoiceNumber}}<br>
-        <strong>Date:</strong> {{date}}<br>
-        <strong>Due Date:</strong> {{dueDate}}<br>
-        <strong>Mode/Terms of Payment:</strong> N/A
-    </div>
-
-    <div class="client-details">
-        <strong>Buyer:</strong><br>
-        Name: {{clientName}}<br>
-        Email: {{clientEmail}}<br>
-        Phone: {{clientPhone}}<br>
-        <strong>Client Details:</strong><br>
-        Address: {{clientAddress}}<br>
-        GSTIN: {{clientGSTIN}}
-    </div>
-
-    <table>
-        <thead>
-            <tr>
-                <th>Sl No.</th>
-                <th>Description of Services</th>
-                <th>SAC</th>
-                <th>Quantity</th>
-                <th>Rate (₹)</th>
-                <th>Amount (₹)</th>
-            </tr>
-        </thead>
-        <tbody>
-            {{#each items}}
-            <tr>
-                <td>{{index @index}}</td>
-                <td>{{this.description}}</td>
-                <td>{{this.sac}}</td>
-                <td>{{this.quantity}}</td>
-                <td>{{this.rate}}</td>
-                <td>{{this.amount}}</td>
-            </tr>
-            {{/each}}
-        </tbody>
-    </table>
-
-    <div class="amount-in-words">
-        <strong>Total Amount:</strong> ₹{{totalAmount}}<br>
-        <strong>Amount Chargeable (in words):</strong> {{amountInWords}}
-    </div>
-
-    <div class="bank-details">
-        <strong>Company's Bank Details:</strong><br>
-        Beneficiary Name: InnoAI Technologies Pvt Ltd<br>
-        Bank Name: XYZ Bank<br>
-        Account No.: 1234567890<br>
-        Branch: Main Branch<br>
-        Account Type: Current<br>
-        Swift Code: XYZ1234
-    </div>
-
-    <div class="signature">
-        For InnoAI Technologies Pvt Ltd<br><br><br>
-        Authorized Signatory
-    </div>
-</body>
-</html> -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -95,38 +5,53 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tax Invoice</title>
     <style>
+        @page {
+            size: A4;
+            margin: 0;
+        }
         body {
             font-family: Arial, sans-serif;
             margin: 0;
-            padding: 20px;
+            padding: 0;
+            font-size: 12px;
+            line-height: 1.4;
+            color: #333;
         }
         .invoice-container {
             width: 100%;
             max-width: 800px;
-            margin: auto;
+            margin: 0 auto;
+            padding: 20px;
+            box-sizing: border-box;
             border: 1px solid #000;
+            background-color: white;
         }
         .export-header {
             text-align: center;
             border-bottom: 1px solid #000;
             padding: 10px;
-            font-size: 11px;
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 10px;
         }
         .header-section {
-            display: grid;
-            grid-template-columns: 200px 1fr;
+            display: flex;
             border-bottom: 1px solid #000;
+            margin-bottom: 10px;
         }
         .logo-section {
+            width: 25%;
             padding: 10px;
             border-right: 1px solid #000;
+            text-align: center;
         }
         .invoice-details {
+            width: 75%;
             display: grid;
             grid-template-columns: 1fr 1fr;
         }
         .invoice-details > div {
-            padding: 5px;
+            padding: 8px;
             border-bottom: 1px solid #000;
         }
         .invoice-details > div:nth-child(odd) {
@@ -135,64 +60,82 @@
         .company-info {
             padding: 10px;
             border-bottom: 1px solid #000;
+            margin-bottom: 10px;
         }
         .company-info p {
             margin: 2px 0;
-            font-size: 12px;
+        }
+        .client-details {
+            padding: 10px;
+            border-bottom: 1px solid #000;
+            margin-bottom: 10px;
         }
         table {
             width: 100%;
             border-collapse: collapse;
+            margin-bottom: 10px;
         }
         th, td {
             border: 1px solid #000;
             padding: 8px;
             text-align: left;
-            font-size: 12px;
+        }
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
         }
         .amount-section {
-            display: grid;
-            grid-template-columns: 2fr 1fr;
+            display: flex;
+            border-bottom: 1px solid #000;
+            margin-bottom: 10px;
         }
         .amount-words {
+            width: 70%;
             padding: 10px;
             border-right: 1px solid #000;
-            border-bottom: 1px solid #000;
         }
         .amount-total {
+            width: 30%;
             padding: 10px;
             text-align: right;
-            border-bottom: 1px solid #000;
         }
         .footer-section {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
+            display: flex;
         }
         .declaration {
+            width: 60%;
             padding: 10px;
             border-right: 1px solid #000;
-            font-size: 12px;
         }
         .signature {
+            width: 40%;
             padding: 10px;
             text-align: center;
         }
         .bank-details {
-            padding: 10px;
-            font-size: 12px;
+            padding: 10px 0;
+            margin-top: 20px;
+        }
+        .signature-line {
+            margin-top: 80px;
+            border-top: 1px solid #000;
+            width: 70%;
+            margin-left: auto;
+            margin-right: auto;
+            padding-top: 5px;
         }
     </style>
 </head>
 <body>
     <div class="invoice-container">
         <div class="export-header">
-            <strong>Tax Invoice</strong><br>
-            (SUPPLY MEANT FOR EXPORT/SUPPLY TO SEZ UNIT OR SEZ DEVELOPER FOR AUTHORISED OPERATIONS UNDER BOND OR LETTER OF UNDERTAKING WITHOUT PAYMENT OF IGST)
+            TAX INVOICE
         </div>
         
         <div class="header-section">
             <div class="logo-section">
-                <strong>LOGO</strong>
+                <strong>InnoAI</strong><br>
+                Technologies
             </div>
             <div class="invoice-details">
                 <div>
@@ -204,18 +147,20 @@
                     {{date}}
                 </div>
                 <div>
-                    <strong>Supplier's Ref.</strong><br>
+                    <strong>Due Date</strong><br>
+                    {{dueDate}}
+                </div>
+                <div>
+                    <strong>Currency</strong><br>
+                    {{currency}}
+                </div>
+                <div>
+                    <strong>Reference</strong><br>
                     {{invoiceNumber}}
                 </div>
                 <div>
-                    <strong>Mode/Terms of Payment:</strong><br>
-                    {{paymentTerms}}
-                </div>
-                <div>
-                    <strong>Other Reference(s): Employee Time Sheet</strong>
-                </div>
-                <div>
-                    <strong>LUT/Bond No. :</strong>
+                    <strong>Payment Terms</strong><br>
+                    Net 30 days
                 </div>
             </div>
         </div>
@@ -224,33 +169,28 @@
             <strong>InnoAI Technologies Pvt Ltd</strong><br>
             VRA A 39, Kallummoodu, Anayara,<br>
             Thiruvananthapuram, Kerala 695029<br>
-            GSTIN/UIN:<br>
-            State Name : Kerala, Code : 32<br>
-            CIN:<br>
-            Contact :<br>
-            E-Mail :
+            GSTIN/UIN: 32AABCI1234A1Z5<br>
+            State Name: Kerala, Code: 32<br>
+            Contact: +91 9876543210<br>
+            E-Mail: info@innoai.com
         </div>
 
         <div class="client-details">
             <strong>Buyer:</strong><br>
-            Name: {{clientName}}<br>
-            Email: {{clientEmail}}<br>
-            Phone: {{clientPhone}}
-        </div>
-
-        <div style="border-bottom: 1px solid #000; padding: 5px;">
-            <!-- Terms of Delivery: Nil -->
+            <strong>Name:</strong> {{clientName}}<br>
+            <strong>Email:</strong> {{clientEmail}}<br>
+            <strong>Phone:</strong> {{clientPhone}}
         </div>
 
         <table>
             <thead>
                 <tr>
-                    <th>Sl No.</th>
-                    <th>Description of Services</th>
-                    <th>SAC</th>
-                    <th>Quantity</th>
-                    <th>Rate</th>
-                    <th>Amount</th>
+                    <th style="width: 5%;">Sl No.</th>
+                    <th style="width: 40%;">Description of Services</th>
+                    <th style="width: 10%;">SAC</th>
+                    <th style="width: 10%;">Quantity</th>
+                    <th style="width: 15%;">Rate</th>
+                    <th style="width: 20%;">Amount</th>
                 </tr>
             </thead>
             <tbody>
@@ -265,41 +205,59 @@
                 </tr>
                 {{/each}}
                 <tr>
-                    <td colspan="5" style="text-align: right;"><strong>Total {{currency}}</strong></td>
-                    <td>{{totalAmount}}</td>
+                    <td colspan="5" style="text-align: right;"><strong>Total</strong></td>
+                    <td><strong>{{totalAmount}}</strong></td>
                 </tr>
             </tbody>
         </table>
 
         <div class="amount-section">
             <div class="amount-words">
-                <strong>Amount Chargeable (in words)</strong><br>
-                {{amountInWords}} {{currency}}
+                <strong>Amount Chargeable (in words):</strong><br>
+                {{amountInWords}} only
             </div>
             <div class="amount-total">
-                E. & O.E
+                <strong>E. & O.E</strong>
             </div>
         </div>
 
-
         <div class="footer-section">
             <div class="declaration">
-                <strong>Declaration</strong><br>
-                We declare that this invoice shows the actual price of the goods described
-                and that all particulars are true
+                <strong>Declaration:</strong><br>
+                We declare that this invoice shows the actual price of the services described
+                and that all particulars are true and correct.
+                
                 <div class="bank-details">
-                    <strong>Company's Bank Details</strong><br>
-                    Beneficiary Name<br>
-                    Bank Name:<br>
-                    A/c No.:<br>
-                    IFSCode:<br>
-                    Branch<br>
-                    Account Type<br>
-                    Swift Code:
+                    <strong>Company's Bank Details:</strong><br>
+                    <table style="border: none; margin-top: 5px;">
+                        <tr>
+                            <td style="border: none; padding: 2px;">Beneficiary Name:</td>
+                            <td style="border: none; padding: 2px;">InnoAI Technologies Pvt Ltd</td>
+                        </tr>
+                        <tr>
+                            <td style="border: none; padding: 2px;">Bank Name:</td>
+                            <td style="border: none; padding: 2px;">HDFC Bank</td>
+                        </tr>
+                        <tr>
+                            <td style="border: none; padding: 2px;">A/c No.:</td>
+                            <td style="border: none; padding: 2px;">50100123456789</td>
+                        </tr>
+                        <tr>
+                            <td style="border: none; padding: 2px;">IFSC Code:</td>
+                            <td style="border: none; padding: 2px;">HDFC0001234</td>
+                        </tr>
+                        <tr>
+                            <td style="border: none; padding: 2px;">Branch:</td>
+                            <td style="border: none; padding: 2px;">Thiruvananthapuram</td>
+                        </tr>
+                    </table>
                 </div>
             </div>
             <div class="signature">
-                <p style="margin-top: 150px;">For InnoAI Technologies Pvt Ltd</p>
+                <div class="signature-line">
+                    Authorized Signatory<br>
+                    For InnoAI Technologies Pvt Ltd
+                </div>
             </div>
         </div>
     </div>
