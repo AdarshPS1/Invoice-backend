@@ -11,6 +11,10 @@ services:
         value: true
       - key: PUPPETEER_EXECUTABLE_PATH
         value: /usr/bin/google-chrome-stable
+      - key: PUPPETEER_SKIP_DOWNLOAD
+        value: true
+      - key: PUPPETEER_DOWNLOAD_BASE_URL
+        value: https://storage.googleapis.com/chrome-for-testing-public
     healthCheckPath: /api/health
     autoDeploy: true
     plan: free 

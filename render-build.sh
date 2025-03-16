@@ -5,9 +5,14 @@ set -e
 echo "Installing dependencies..."
 npm install --production=false
 
-echo "Setting up Puppeteer..."
-# Install required dependencies for Puppeteer
+echo "Setting up Chrome for Puppeteer..."
+# Install Chrome directly
+wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add -
+echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google.list
 apt-get update
+apt-get install -y google-chrome-stable
+
+# Install required dependencies for Chrome
 apt-get install -y \
     gconf-service \
     libasound2 \
@@ -45,10 +50,15 @@ apt-get install -y \
     libappindicator1 \
     libnss3 \
     lsb-release \
-    xdg-utils \
-    wget
+    xdg-utils
 
-# Make sure Puppeteer is installed
-node node_modules/puppeteer/install.js
+# Verify Chrome installation
+echo "Verifying Chrome installation..."
+google-chrome-stable --version
+
+# Create directory for PDF storage
+echo "Creating invoices directory..."
+mkdir -p invoices
+chmod 777 invoices
 
 echo "Build completed successfully!" 

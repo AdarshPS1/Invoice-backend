@@ -2,7 +2,9 @@ const fs = require('fs');
 const path = require('path');
 const puppeteer = require('puppeteer');
 const Handlebars = require('handlebars');
+const os = require('os');
 
+// Register Handlebars helpers
 Handlebars.registerHelper('index', function (index) {
   return index + 1;
 });
@@ -78,14 +80,19 @@ function convertAmountToWords(amount) {
 }
 
 const generateInvoicePDF = async (invoice) => {
+  let browser = null;
+  
   try {
-    console.log('Received invoice data:', {
-      invoiceNumber: invoice?.invoiceNumber,
-      client: invoice?.client?.name,
-      totalAmount: invoice?.totalAmount,
-      items: invoice?.items?.length,
+    console.log('Starting PDF generation process...');
+    console.log('System info:', {
+      platform: os.platform(),
+      release: os.release(),
+      type: os.type(),
+      arch: os.arch(),
+      memory: Math.round(os.totalmem() / (1024 * 1024 * 1024)) + 'GB'
     });
-
+    
+    // Validate invoice data
     if (!invoice || typeof invoice !== 'object') {
       throw new Error('Invalid invoice data');
     }
@@ -94,11 +101,25 @@ const generateInvoicePDF = async (invoice) => {
       throw new Error('Missing invoiceNumber in invoice data');
     }
 
-    console.log('Invoice items:', invoice.items);
+    console.log('Processing invoice:', {
+      invoiceNumber: invoice.invoiceNumber,
+      client: invoice.client?.name || 'Unknown',
+      items: Array.isArray(invoice.items) ? invoice.items.length : 0
+    });
 
-    const totalAmount = invoice.items.reduce((sum, item) => sum + ((item.quantity || 0) * (item.rate || 0)), 0);
+    // Calculate total amount
+    const totalAmount = Array.isArray(invoice.items) 
+      ? invoice.items.reduce((sum, item) => sum + ((item.quantity || 0) * (item.rate || 0)), 0)
+      : 0;
 
+    // Prepare template data
     const templatePath = path.join(__dirname, 'invoiceTemplate.html');
+    console.log('Template path:', templatePath);
+    
+    if (!fs.existsSync(templatePath)) {
+      throw new Error(`Invoice template not found at ${templatePath}`);
+    }
+    
     const html = fs.readFileSync(templatePath, 'utf8');
     const template = Handlebars.compile(html);
 
@@ -129,12 +150,38 @@ const generateInvoicePDF = async (invoice) => {
     }));
     data.totalAmount = formatCurrency(data.totalAmount, data.currency);
 
-    console.log('Data used for PDF generation:', data);
+    console.log('Compiled template data successfully');
 
+    // Generate HTML content
     const compiledHtml = template(data);
 
-    // Configure Puppeteer to work in a cloud environment
-    const browser = await puppeteer.launch({
+    // Create directory for invoices if it doesn't exist
+    const invoicesDir = path.join(__dirname, '..', 'invoices');
+    if (!fs.existsSync(invoicesDir)) {
+      console.log(`Creating invoices directory at ${invoicesDir}`);
+      fs.mkdirSync(invoicesDir, { recursive: true });
+    }
+
+    // Sanitize filename
+    const sanitizeFilename = (filename) => {
+      if (!filename || typeof filename !== 'string') {
+        return 'Invoice_Unknown_' + Date.now();
+      }
+      return filename.replace(/[\/\\?%*:|"<>]/g, '-');
+    };
+
+    const pdfFilename = `Invoice_${sanitizeFilename(invoice.invoiceNumber)}.pdf`;
+    const pdfPath = path.join(invoicesDir, pdfFilename);
+    
+    console.log(`PDF will be saved to: ${pdfPath}`);
+
+    // Launch Puppeteer with specific configuration for cloud environments
+    console.log('Launching Puppeteer...');
+    
+    // Define browser launch options based on environment
+    const isProduction = process.env.NODE_ENV === 'production';
+    const launchOptions = {
+      headless: 'new',
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -144,37 +191,66 @@ const generateInvoicePDF = async (invoice) => {
         '--no-zygote',
         '--single-process',
         '--disable-gpu'
-      ],
-      headless: 'new'
-    });
+      ]
+    };
+    
+    // In production, try to use the installed Chrome
+    if (isProduction && process.env.PUPPETEER_EXECUTABLE_PATH) {
+      console.log(`Using Chrome at: ${process.env.PUPPETEER_EXECUTABLE_PATH}`);
+      launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+    }
+    
+    console.log('Browser launch options:', JSON.stringify(launchOptions, null, 2));
+    
+    browser = await puppeteer.launch(launchOptions);
+    console.log('Browser launched successfully');
     
     const page = await browser.newPage();
-    await page.setContent(compiledHtml);
+    console.log('New page created');
+    
+    // Set content with timeout
+    await page.setContent(compiledHtml, { 
+      waitUntil: 'networkidle0',
+      timeout: 30000 
+    });
+    console.log('Content set to page');
 
-    const sanitizeFilename = (filename) => {
-      if (!filename || typeof filename !== 'string') {
-        console.error('Invalid filename:', filename); // Debug invalid filename
-        return 'Invoice_Unknown_' + Date.now();
+    // Generate PDF
+    await page.pdf({ 
+      path: pdfPath, 
+      format: 'A4',
+      printBackground: true,
+      margin: {
+        top: '1cm',
+        right: '1cm',
+        bottom: '1cm',
+        left: '1cm'
       }
-      return filename.replace(/[\/\\?%*:|"<>]/g, '-');
-    };
-
-    const invoicesDir = path.join(__dirname, '..', 'invoices');
-    if (!fs.existsSync(invoicesDir)) {
-      fs.mkdirSync(invoicesDir);
+    });
+    
+    console.log('PDF generated successfully');
+    
+    // Close browser
+    if (browser) {
+      await browser.close();
+      console.log('Browser closed');
     }
-
-    const pdfPath = path.join(invoicesDir, `Invoice_${sanitizeFilename(invoice.invoiceNumber)}.pdf`);
-
-    await page.pdf({ path: pdfPath, format: 'A4' });
-
-    await browser.close();
+    
     return pdfPath;
   } catch (err) {
-    console.error('Error generating PDF:', err.message);
-    if (err.stack) {
-      console.error('Stack trace:', err.stack);
+    console.error('Error in PDF generation:', err);
+    console.error('Error stack:', err.stack);
+    
+    // Ensure browser is closed in case of error
+    if (browser) {
+      try {
+        await browser.close();
+        console.log('Browser closed after error');
+      } catch (closeErr) {
+        console.error('Error closing browser:', closeErr);
+      }
     }
+    
     throw err;
   }
 };
