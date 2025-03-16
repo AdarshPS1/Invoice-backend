@@ -104,11 +104,12 @@ const generateInvoicePDF = async (invoice) => {
 
     const data = {
       invoiceNumber: invoice.invoiceNumber,
-      date: invoice.date,
-      dueDate: invoice.dueDate,
+      date: new Date(invoice.date).toLocaleDateString(),
+      dueDate: new Date(invoice.dueDate).toLocaleDateString(),
       clientName: invoice.client?.name || 'N/A',
       clientEmail: invoice.client?.email || 'N/A',
       clientPhone: invoice.client?.phone || 'N/A',
+      paymentTerms: 'Net 30',
       items: Array.isArray(invoice.items) ? invoice.items.map((item) => ({
         description: item.description || 'No description',
         sac: item.sac || '998314',
@@ -133,7 +134,22 @@ const generateInvoicePDF = async (invoice) => {
 
     const compiledHtml = template(data);
 
-    const browser = await puppeteer.launch();
+    // Configure Puppeteer for cloud environment
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+        '--disable-gpu'
+      ],
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined
+    });
+    
     const page = await browser.newPage();
     await page.setContent(compiledHtml);
 
@@ -147,17 +163,27 @@ const generateInvoicePDF = async (invoice) => {
 
     const invoicesDir = path.join(__dirname, '..', 'invoices');
     if (!fs.existsSync(invoicesDir)) {
-      fs.mkdirSync(invoicesDir);
+      fs.mkdirSync(invoicesDir, { recursive: true });
     }
 
     const pdfPath = path.join(invoicesDir, `Invoice_${sanitizeFilename(invoice.invoiceNumber)}.pdf`);
 
-    await page.pdf({ path: pdfPath, format: 'A4' });
+    await page.pdf({ 
+      path: pdfPath, 
+      format: 'A4',
+      printBackground: true,
+      margin: {
+        top: '20px',
+        right: '20px',
+        bottom: '20px',
+        left: '20px'
+      }
+    });
 
     await browser.close();
     return pdfPath;
   } catch (err) {
-    console.error('Error generating PDF:', err.message);
+    console.error('Error generating PDF:', err.message, err.stack);
     throw err;
   }
 };

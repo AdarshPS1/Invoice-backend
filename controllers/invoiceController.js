@@ -1,6 +1,7 @@
 const Invoice = require('../models/Invoice');
 const Client = require('../models/Client');
 const generateInvoicePDF = require('../utils/pdfGenerator');
+const fs = require('fs');
 
 // Get all invoices
 const getInvoices = async (req, res) => {
@@ -175,15 +176,47 @@ const getInvoicePayments = async (req, res) => {
 // Generate invoice PDF
 const generateInvoicePDFController = async (req, res) => {
   try {
+    console.log(`Generating PDF for invoice ID: ${req.params.id}`);
+    
     const invoice = await Invoice.findById(req.params.id).populate('client');
     if (!invoice) {
+      console.log(`Invoice not found with ID: ${req.params.id}`);
       return res.status(404).json({ message: 'Invoice not found' });
     }
-
+    
+    console.log(`Found invoice: ${invoice.invoiceNumber} for client: ${invoice.client?.name}`);
+    
     const pdfPath = await generateInvoicePDF(invoice);
-    res.download(pdfPath);
+    console.log(`PDF generated successfully at: ${pdfPath}`);
+    
+    // Check if file exists before sending
+    if (!fs.existsSync(pdfPath)) {
+      console.error(`PDF file does not exist at path: ${pdfPath}`);
+      return res.status(500).json({ message: 'PDF file could not be generated' });
+    }
+    
+    // Set appropriate headers
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Invoice_${invoice.invoiceNumber}.pdf"`);
+    
+    // Stream the file instead of using res.download
+    const fileStream = fs.createReadStream(pdfPath);
+    fileStream.pipe(res);
+    
+    // Handle stream errors
+    fileStream.on('error', (error) => {
+      console.error(`Error streaming PDF file: ${error.message}`);
+      if (!res.headersSent) {
+        res.status(500).json({ message: 'Error streaming PDF file' });
+      }
+    });
   } catch (error) {
-    res.status(500).json({ message: 'Failed to generate PDF', error: error.message });
+    console.error(`PDF generation error: ${error.message}`, error.stack);
+    res.status(500).json({ 
+      message: 'Failed to generate PDF', 
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 };
 
