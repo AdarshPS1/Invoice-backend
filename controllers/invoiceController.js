@@ -186,34 +186,60 @@ const generateInvoicePDFController = async (req, res) => {
     
     console.log(`Found invoice: ${invoice.invoiceNumber} for client: ${invoice.client?.name}`);
     
-    const pdfPath = await generateInvoicePDF(invoice);
-    console.log(`PDF generated successfully at: ${pdfPath}`);
-    
-    // Check if file exists before sending
-    if (!fs.existsSync(pdfPath)) {
-      console.error(`PDF file does not exist at path: ${pdfPath}`);
-      return res.status(500).json({ message: 'PDF file could not be generated' });
+    // Ensure the invoice has all required data
+    if (!invoice.items || !Array.isArray(invoice.items)) {
+      console.error('Invoice is missing items array:', invoice);
+      return res.status(400).json({ message: 'Invoice data is incomplete' });
     }
     
-    // Set appropriate headers
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="Invoice_${invoice.invoiceNumber}.pdf"`);
-    
-    // Stream the file instead of using res.download
-    const fileStream = fs.createReadStream(pdfPath);
-    fileStream.pipe(res);
-    
-    // Handle stream errors
-    fileStream.on('error', (error) => {
-      console.error(`Error streaming PDF file: ${error.message}`);
-      if (!res.headersSent) {
-        res.status(500).json({ message: 'Error streaming PDF file' });
+    try {
+      const pdfPath = await generateInvoicePDF(invoice);
+      console.log(`PDF generated successfully at: ${pdfPath}`);
+      
+      // Check if file exists before sending
+      if (!fs.existsSync(pdfPath)) {
+        console.error(`PDF file does not exist at path: ${pdfPath}`);
+        return res.status(500).json({ message: 'PDF file could not be generated' });
       }
-    });
+      
+      // Get file stats to set Content-Length header
+      const stat = fs.statSync(pdfPath);
+      
+      // Set appropriate headers
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Length', stat.size);
+      res.setHeader('Content-Disposition', `inline; filename="Invoice_${invoice.invoiceNumber}.pdf"`);
+      
+      // Stream the file instead of using res.download
+      const fileStream = fs.createReadStream(pdfPath);
+      
+      // Handle stream errors
+      fileStream.on('error', (error) => {
+        console.error(`Error streaming PDF file: ${error.message}`);
+        if (!res.headersSent) {
+          res.status(500).json({ message: 'Error streaming PDF file', error: error.message });
+        }
+      });
+      
+      // Handle stream end
+      fileStream.on('end', () => {
+        console.log('PDF streaming completed successfully');
+      });
+      
+      // Pipe the file to the response
+      fileStream.pipe(res);
+    } catch (pdfError) {
+      console.error(`Error in PDF generation: ${pdfError.message}`);
+      console.error(pdfError.stack);
+      return res.status(500).json({ 
+        message: 'Failed to generate PDF', 
+        error: pdfError.message
+      });
+    }
   } catch (error) {
-    console.error(`PDF generation error: ${error.message}`, error.stack);
+    console.error(`Controller error: ${error.message}`, error.stack);
     res.status(500).json({ 
-      message: 'Failed to generate PDF', 
+      message: 'Failed to process PDF request', 
       error: error.message,
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });

@@ -78,34 +78,57 @@ function convertAmountToWords(amount) {
 }
 
 const generateInvoicePDF = async (invoice) => {
+  let browser = null;
+  
   try {
-    console.log('Received invoice data:', {
-      invoiceNumber: invoice?.invoiceNumber,
-      client: invoice?.client?.name,
-      totalAmount: invoice?.totalAmount,
-      items: invoice?.items?.length,
-    });
+    console.log('Starting PDF generation process for invoice:', invoice?._id);
 
     if (!invoice || typeof invoice !== 'object') {
-      throw new Error('Invalid invoice data');
+      throw new Error('Invalid invoice data: ' + JSON.stringify(invoice));
     }
 
     if (!invoice.invoiceNumber) {
       throw new Error('Missing invoiceNumber in invoice data');
     }
 
-    console.log('Invoice items:', invoice.items);
+    console.log('Processing invoice items:', JSON.stringify(invoice.items));
 
-    const totalAmount = invoice.items.reduce((sum, item) => sum + ((item.quantity || 0) * (item.rate || 0)), 0);
+    // Calculate total amount from items
+    const totalAmount = Array.isArray(invoice.items) 
+      ? invoice.items.reduce((sum, item) => sum + ((item.quantity || 0) * (item.rate || 0)), 0)
+      : 0;
+
+    console.log('Calculated total amount:', totalAmount);
+
+    // Format dates properly
+    const formatDate = (dateString) => {
+      try {
+        const date = new Date(dateString);
+        return date.toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        });
+      } catch (err) {
+        console.error('Error formatting date:', err);
+        return dateString || 'N/A';
+      }
+    };
 
     const templatePath = path.join(__dirname, 'invoiceTemplate.html');
+    console.log('Template path:', templatePath);
+    
+    if (!fs.existsSync(templatePath)) {
+      throw new Error(`Invoice template not found at: ${templatePath}`);
+    }
+    
     const html = fs.readFileSync(templatePath, 'utf8');
     const template = Handlebars.compile(html);
 
     const data = {
       invoiceNumber: invoice.invoiceNumber,
-      date: new Date(invoice.date).toLocaleDateString(),
-      dueDate: new Date(invoice.dueDate).toLocaleDateString(),
+      date: formatDate(invoice.date),
+      dueDate: formatDate(invoice.dueDate),
       clientName: invoice.client?.name || 'N/A',
       clientEmail: invoice.client?.email || 'N/A',
       clientPhone: invoice.client?.phone || 'N/A',
@@ -118,7 +141,7 @@ const generateInvoicePDF = async (invoice) => {
         amount: (item.quantity || 0) * (item.rate || 0),
       })) : [],
       totalAmount: totalAmount,
-      amountInWords: convertAmountToWords(totalAmount),
+      amountInWords: convertAmountToWords(Math.round(totalAmount)),
       currency: invoice.currency || 'USD',
     };
 
@@ -130,13 +153,15 @@ const generateInvoicePDF = async (invoice) => {
     }));
     data.totalAmount = formatCurrency(data.totalAmount, data.currency);
 
-    console.log('Data used for PDF generation:', data);
+    console.log('Data prepared for PDF generation');
 
     const compiledHtml = template(data);
 
+    console.log('HTML template compiled, launching Puppeteer');
+
     // Configure Puppeteer for cloud environment
-    const browser = await puppeteer.launch({
-      headless: true,
+    const puppeteerConfig = {
+      headless: 'new',
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -147,43 +172,100 @@ const generateInvoicePDF = async (invoice) => {
         '--single-process',
         '--disable-gpu'
       ],
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined
+      timeout: 60000 // 60 second timeout for browser operations
+    };
+
+    // Only set executablePath if it's defined in environment
+    if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+      puppeteerConfig.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+      console.log('Using custom Puppeteer executable path:', process.env.PUPPETEER_EXECUTABLE_PATH);
+    }
+
+    // Create a promise that will reject after a timeout
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('PDF generation timed out after 60 seconds')), 60000);
     });
+
+    // Race the browser launch against the timeout
+    browser = await Promise.race([
+      puppeteer.launch(puppeteerConfig),
+      timeoutPromise
+    ]);
+    
+    console.log('Puppeteer browser launched');
     
     const page = await browser.newPage();
-    await page.setContent(compiledHtml);
+    console.log('New page created');
+    
+    // Set a timeout for page operations
+    await page.setDefaultNavigationTimeout(30000);
+    await page.setDefaultTimeout(30000);
+    
+    // Set the content with a timeout
+    await Promise.race([
+      page.setContent(compiledHtml, { waitUntil: 'networkidle0' }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Setting page content timed out')), 30000))
+    ]);
+    
+    console.log('Content set on page');
 
     const sanitizeFilename = (filename) => {
       if (!filename || typeof filename !== 'string') {
-        console.error('Invalid filename:', filename); // Debug invalid filename
+        console.error('Invalid filename:', filename);
         return 'Invoice_Unknown_' + Date.now();
       }
       return filename.replace(/[\/\\?%*:|"<>]/g, '-');
     };
 
     const invoicesDir = path.join(__dirname, '..', 'invoices');
+    console.log('Ensuring invoices directory exists:', invoicesDir);
+    
     if (!fs.existsSync(invoicesDir)) {
       fs.mkdirSync(invoicesDir, { recursive: true });
+      console.log('Created invoices directory');
     }
 
-    const pdfPath = path.join(invoicesDir, `Invoice_${sanitizeFilename(invoice.invoiceNumber)}.pdf`);
+    const pdfFilename = `Invoice_${sanitizeFilename(invoice.invoiceNumber)}.pdf`;
+    const pdfPath = path.join(invoicesDir, pdfFilename);
+    console.log('PDF will be saved to:', pdfPath);
 
-    await page.pdf({ 
-      path: pdfPath, 
-      format: 'A4',
-      printBackground: true,
-      margin: {
-        top: '20px',
-        right: '20px',
-        bottom: '20px',
-        left: '20px'
-      }
-    });
+    // Generate PDF with a timeout
+    await Promise.race([
+      page.pdf({ 
+        path: pdfPath, 
+        format: 'A4',
+        printBackground: true,
+        margin: {
+          top: '20px',
+          right: '20px',
+          bottom: '20px',
+          left: '20px'
+        }
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('PDF generation operation timed out')), 30000))
+    ]);
+    
+    console.log('PDF generated successfully');
 
     await browser.close();
+    browser = null;
+    console.log('Browser closed');
+    
     return pdfPath;
   } catch (err) {
-    console.error('Error generating PDF:', err.message, err.stack);
+    console.error('Error generating PDF:', err.message);
+    console.error('Error stack:', err.stack);
+    
+    // Clean up browser if it's still open
+    if (browser) {
+      try {
+        await browser.close();
+        console.log('Browser closed after error');
+      } catch (closeErr) {
+        console.error('Error closing browser:', closeErr.message);
+      }
+    }
+    
     throw err;
   }
 };
