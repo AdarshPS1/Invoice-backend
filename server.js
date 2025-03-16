@@ -38,11 +38,23 @@ if (!fs.existsSync(invoicesDir)) {
 app.use(cors({
   origin: true, // Allow requests from any origin
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 }));
 
 // Increase JSON payload size limit for larger requests
 app.use(express.json({ limit: '50mb' })); 
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Increase timeout for PDF generation
+app.use((req, res, next) => {
+  // Set a longer timeout for PDF generation routes
+  if (req.url.includes('/pdf')) {
+    req.setTimeout(120000); // 2 minutes
+    res.setTimeout(120000); // 2 minutes
+  }
+  next();
+});
 
 // Add request logging middleware
 app.use((req, res, next) => {
@@ -66,7 +78,7 @@ app.use('/api/dashboard', dashboardRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error('Global error handler caught:', err.stack);
+  console.error('Global error handler caught:', err);
   
   // Check if headers have already been sent
   if (res.headersSent) {
@@ -84,6 +96,18 @@ app.use((err, req, res, next) => {
 app.use((req, res) => {
   console.log(`404 Not Found: ${req.method} ${req.originalUrl}`);
   res.status(404).json({ message: 'Route not found' });
+});
+
+// Uncaught exception handler
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  // Keep the server running despite the error
+});
+
+// Unhandled promise rejection handler
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // Keep the server running despite the error
 });
 
 // Start server

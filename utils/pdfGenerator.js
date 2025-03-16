@@ -83,22 +83,19 @@ const generateInvoicePDF = async (invoice) => {
   try {
     console.log('Starting PDF generation process for invoice:', invoice?._id);
 
+    // Validate invoice data
     if (!invoice || typeof invoice !== 'object') {
-      throw new Error('Invalid invoice data: ' + JSON.stringify(invoice));
+      throw new Error('Invalid invoice data');
     }
 
     if (!invoice.invoiceNumber) {
       throw new Error('Missing invoiceNumber in invoice data');
     }
 
-    console.log('Processing invoice items:', JSON.stringify(invoice.items));
-
     // Calculate total amount from items
     const totalAmount = Array.isArray(invoice.items) 
       ? invoice.items.reduce((sum, item) => sum + ((item.quantity || 0) * (item.rate || 0)), 0)
       : 0;
-
-    console.log('Calculated total amount:', totalAmount);
 
     // Format dates properly
     const formatDate = (dateString) => {
@@ -110,14 +107,12 @@ const generateInvoicePDF = async (invoice) => {
           day: 'numeric'
         });
       } catch (err) {
-        console.error('Error formatting date:', err);
         return dateString || 'N/A';
       }
     };
 
+    // Prepare template data
     const templatePath = path.join(__dirname, 'invoiceTemplate.html');
-    console.log('Template path:', templatePath);
-    
     if (!fs.existsSync(templatePath)) {
       throw new Error(`Invoice template not found at: ${templatePath}`);
     }
@@ -153,86 +148,55 @@ const generateInvoicePDF = async (invoice) => {
     }));
     data.totalAmount = formatCurrency(data.totalAmount, data.currency);
 
-    console.log('Data prepared for PDF generation');
-
+    // Compile HTML template
     const compiledHtml = template(data);
 
-    console.log('HTML template compiled, launching Puppeteer');
-
-    // Configure Puppeteer for cloud environment
-    const puppeteerConfig = {
-      headless: 'new',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--single-process',
-        '--disable-gpu'
-      ],
-      timeout: 60000 // 60 second timeout for browser operations
-    };
-
-    // Only set executablePath if it's defined in environment
-    if (process.env.PUPPETEER_EXECUTABLE_PATH) {
-      puppeteerConfig.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
-      console.log('Using custom Puppeteer executable path:', process.env.PUPPETEER_EXECUTABLE_PATH);
+    // Ensure invoices directory exists
+    const invoicesDir = path.join(__dirname, '..', 'invoices');
+    if (!fs.existsSync(invoicesDir)) {
+      fs.mkdirSync(invoicesDir, { recursive: true });
     }
 
-    // Create a promise that will reject after a timeout
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('PDF generation timed out after 60 seconds')), 60000);
-    });
-
-    // Race the browser launch against the timeout
-    browser = await Promise.race([
-      puppeteer.launch(puppeteerConfig),
-      timeoutPromise
-    ]);
-    
-    console.log('Puppeteer browser launched');
-    
-    const page = await browser.newPage();
-    console.log('New page created');
-    
-    // Set a timeout for page operations
-    await page.setDefaultNavigationTimeout(30000);
-    await page.setDefaultTimeout(30000);
-    
-    // Set the content with a timeout
-    await Promise.race([
-      page.setContent(compiledHtml, { waitUntil: 'networkidle0' }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Setting page content timed out')), 30000))
-    ]);
-    
-    console.log('Content set on page');
-
+    // Sanitize filename
     const sanitizeFilename = (filename) => {
       if (!filename || typeof filename !== 'string') {
-        console.error('Invalid filename:', filename);
         return 'Invoice_Unknown_' + Date.now();
       }
       return filename.replace(/[\/\\?%*:|"<>]/g, '-');
     };
 
-    const invoicesDir = path.join(__dirname, '..', 'invoices');
-    console.log('Ensuring invoices directory exists:', invoicesDir);
-    
-    if (!fs.existsSync(invoicesDir)) {
-      fs.mkdirSync(invoicesDir, { recursive: true });
-      console.log('Created invoices directory');
-    }
-
     const pdfFilename = `Invoice_${sanitizeFilename(invoice.invoiceNumber)}.pdf`;
     const pdfPath = path.join(invoicesDir, pdfFilename);
-    console.log('PDF will be saved to:', pdfPath);
 
-    // Generate PDF with a timeout
-    await Promise.race([
-      page.pdf({ 
-        path: pdfPath, 
+    // Launch browser with minimal configuration
+    const puppeteerArgs = [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--disable-gpu'
+    ];
+
+    // Launch browser with a timeout
+    try {
+      browser = await puppeteer.launch({
+        headless: true,
+        args: puppeteerArgs,
+        timeout: 30000
+      });
+
+      // Create a new page
+      const page = await browser.newPage();
+      
+      // Set content with minimal wait
+      await page.setContent(compiledHtml, { 
+        waitUntil: 'domcontentloaded',
+        timeout: 20000
+      });
+
+      // Generate PDF with simple settings
+      await page.pdf({
+        path: pdfPath,
         format: 'A4',
         printBackground: true,
         margin: {
@@ -240,29 +204,39 @@ const generateInvoicePDF = async (invoice) => {
           right: '20px',
           bottom: '20px',
           left: '20px'
-        }
-      }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('PDF generation operation timed out')), 30000))
-    ]);
-    
-    console.log('PDF generated successfully');
+        },
+        timeout: 30000
+      });
 
-    await browser.close();
-    browser = null;
-    console.log('Browser closed');
-    
-    return pdfPath;
+      // Close browser
+      await browser.close();
+      browser = null;
+
+      return pdfPath;
+    } catch (puppeteerError) {
+      console.error('Puppeteer error:', puppeteerError);
+      
+      // If Puppeteer fails, try to close the browser
+      if (browser) {
+        try {
+          await browser.close();
+        } catch (closeError) {
+          console.error('Error closing browser:', closeError);
+        }
+        browser = null;
+      }
+      
+      throw new Error(`PDF generation failed: ${puppeteerError.message}`);
+    }
   } catch (err) {
-    console.error('Error generating PDF:', err.message);
-    console.error('Error stack:', err.stack);
+    console.error('Error in generateInvoicePDF:', err);
     
     // Clean up browser if it's still open
     if (browser) {
       try {
         await browser.close();
-        console.log('Browser closed after error');
       } catch (closeErr) {
-        console.error('Error closing browser:', closeErr.message);
+        console.error('Error closing browser:', closeErr);
       }
     }
     

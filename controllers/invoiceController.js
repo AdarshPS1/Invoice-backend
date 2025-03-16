@@ -178,70 +178,68 @@ const generateInvoicePDFController = async (req, res) => {
   try {
     console.log(`Generating PDF for invoice ID: ${req.params.id}`);
     
+    // Find the invoice
     const invoice = await Invoice.findById(req.params.id).populate('client');
     if (!invoice) {
-      console.log(`Invoice not found with ID: ${req.params.id}`);
       return res.status(404).json({ message: 'Invoice not found' });
     }
     
-    console.log(`Found invoice: ${invoice.invoiceNumber} for client: ${invoice.client?.name}`);
-    
-    // Ensure the invoice has all required data
-    if (!invoice.items || !Array.isArray(invoice.items)) {
-      console.error('Invoice is missing items array:', invoice);
-      return res.status(400).json({ message: 'Invoice data is incomplete' });
+    // Validate invoice data
+    if (!invoice.items || !Array.isArray(invoice.items) || invoice.items.length === 0) {
+      return res.status(400).json({ message: 'Invoice has no items' });
     }
     
+    if (!invoice.client) {
+      return res.status(400).json({ message: 'Invoice has no client information' });
+    }
+    
+    // Generate the PDF
+    let pdfPath;
     try {
-      const pdfPath = await generateInvoicePDF(invoice);
-      console.log(`PDF generated successfully at: ${pdfPath}`);
-      
-      // Check if file exists before sending
-      if (!fs.existsSync(pdfPath)) {
-        console.error(`PDF file does not exist at path: ${pdfPath}`);
-        return res.status(500).json({ message: 'PDF file could not be generated' });
-      }
-      
-      // Get file stats to set Content-Length header
-      const stat = fs.statSync(pdfPath);
-      
-      // Set appropriate headers
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Length', stat.size);
-      res.setHeader('Content-Disposition', `inline; filename="Invoice_${invoice.invoiceNumber}.pdf"`);
-      
-      // Stream the file instead of using res.download
-      const fileStream = fs.createReadStream(pdfPath);
-      
-      // Handle stream errors
-      fileStream.on('error', (error) => {
-        console.error(`Error streaming PDF file: ${error.message}`);
-        if (!res.headersSent) {
-          res.status(500).json({ message: 'Error streaming PDF file', error: error.message });
-        }
-      });
-      
-      // Handle stream end
-      fileStream.on('end', () => {
-        console.log('PDF streaming completed successfully');
-      });
-      
-      // Pipe the file to the response
-      fileStream.pipe(res);
+      pdfPath = await generateInvoicePDF(invoice);
     } catch (pdfError) {
-      console.error(`Error in PDF generation: ${pdfError.message}`);
-      console.error(pdfError.stack);
+      console.error('PDF generation error:', pdfError);
       return res.status(500).json({ 
         message: 'Failed to generate PDF', 
-        error: pdfError.message
+        error: pdfError.message 
       });
     }
+    
+    // Check if file exists
+    if (!fs.existsSync(pdfPath)) {
+      return res.status(500).json({ message: 'PDF file was not created' });
+    }
+    
+    // Get file stats
+    const stats = fs.statSync(pdfPath);
+    if (stats.size === 0) {
+      return res.status(500).json({ message: 'PDF file is empty' });
+    }
+    
+    // Set response headers
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Length', stats.size);
+    res.setHeader('Content-Disposition', `inline; filename="Invoice_${invoice.invoiceNumber}.pdf"`);
+    
+    // Send the file
+    const fileStream = fs.createReadStream(pdfPath);
+    
+    // Handle stream errors
+    fileStream.on('error', (error) => {
+      console.error('Error streaming PDF:', error);
+      if (!res.headersSent) {
+        return res.status(500).json({ message: 'Error streaming PDF file' });
+      }
+    });
+    
+    // Pipe the file to the response
+    fileStream.pipe(res);
+    
   } catch (error) {
-    console.error(`Controller error: ${error.message}`, error.stack);
-    res.status(500).json({ 
-      message: 'Failed to process PDF request', 
-      error: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    console.error('Controller error:', error);
+    return res.status(500).json({ 
+      message: 'Server error processing PDF request', 
+      error: error.message 
     });
   }
 };
