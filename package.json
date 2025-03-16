@@ -5,8 +5,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js",
-    "dev": "nodemon server.js",
-    "postinstall": "node node_modules/puppeteer/install.js"
+    "dev": "nodemon server.js"
   },
   "keywords": [],
   "author": "",
@@ -31,9 +30,5 @@
   },
   "devDependencies": {
     "nodemon": "^3.1.9"
-  },
-  "puppeteer": {
-    "cache": true,
-    "cacheDirectory": "/tmp/puppeteer-cache"
   }
 }

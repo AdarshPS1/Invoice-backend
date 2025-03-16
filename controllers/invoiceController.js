@@ -1,8 +1,6 @@
 const Invoice = require('../models/Invoice');
 const Client = require('../models/Client');
 const generateInvoicePDF = require('../utils/pdfGenerator');
-const generateSimplePDF = require('../utils/simplePdfGenerator');
-const fs = require('fs');
 
 // Get all invoices
 const getInvoices = async (req, res) => {
@@ -177,83 +175,15 @@ const getInvoicePayments = async (req, res) => {
 // Generate invoice PDF
 const generateInvoicePDFController = async (req, res) => {
   try {
-    console.log(`Generating PDF for invoice ID: ${req.params.id}`);
-    
-    // Find the invoice
     const invoice = await Invoice.findById(req.params.id).populate('client');
     if (!invoice) {
       return res.status(404).json({ message: 'Invoice not found' });
     }
-    
-    // Validate invoice data
-    if (!invoice.items || !Array.isArray(invoice.items) || invoice.items.length === 0) {
-      return res.status(400).json({ message: 'Invoice has no items' });
-    }
-    
-    if (!invoice.client) {
-      return res.status(400).json({ message: 'Invoice has no client information' });
-    }
-    
-    // Generate the PDF
-    let pdfPath;
-    try {
-      // Try to generate PDF with Puppeteer first
-      console.log('Attempting to generate PDF with Puppeteer...');
-      pdfPath = await generateInvoicePDF(invoice);
-      console.log('Puppeteer PDF generation successful');
-    } catch (puppeteerError) {
-      console.error('Puppeteer PDF generation failed:', puppeteerError);
-      
-      // If Puppeteer fails, try the simple PDF generator
-      console.log('Falling back to simple PDF generator...');
-      try {
-        pdfPath = await generateSimplePDF(invoice);
-        console.log('Simple PDF generation successful');
-      } catch (simplePdfError) {
-        console.error('Simple PDF generation also failed:', simplePdfError);
-        return res.status(500).json({ 
-          message: 'Failed to generate PDF with both methods', 
-          error: simplePdfError.message 
-        });
-      }
-    }
-    
-    // Check if file exists
-    if (!fs.existsSync(pdfPath)) {
-      return res.status(500).json({ message: 'PDF file was not created' });
-    }
-    
-    // Get file stats
-    const stats = fs.statSync(pdfPath);
-    if (stats.size === 0) {
-      return res.status(500).json({ message: 'PDF file is empty' });
-    }
-    
-    // Set response headers
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Length', stats.size);
-    res.setHeader('Content-Disposition', `inline; filename="Invoice_${invoice.invoiceNumber}.pdf"`);
-    
-    // Send the file
-    const fileStream = fs.createReadStream(pdfPath);
-    
-    // Handle stream errors
-    fileStream.on('error', (error) => {
-      console.error('Error streaming PDF:', error);
-      if (!res.headersSent) {
-        return res.status(500).json({ message: 'Error streaming PDF file' });
-      }
-    });
-    
-    // Pipe the file to the response
-    fileStream.pipe(res);
-    
+
+    const pdfPath = await generateInvoicePDF(invoice);
+    res.download(pdfPath);
   } catch (error) {
-    console.error('Controller error:', error);
-    return res.status(500).json({ 
-      message: 'Server error processing PDF request', 
-      error: error.message 
-    });
+    res.status(500).json({ message: 'Failed to generate PDF', error: error.message });
   }
 };
 
