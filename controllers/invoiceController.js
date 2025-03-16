@@ -1,8 +1,6 @@
 const Invoice = require('../models/Invoice');
 const Client = require('../models/Client');
 const generateInvoicePDF = require('../utils/pdfGenerator');
-const generateFallbackPDF = require('../utils/fallbackPdfGenerator');
-const fs = require('fs');
 
 // Get all invoices
 const getInvoices = async (req, res) => {
@@ -195,112 +193,15 @@ const getInvoicePayments = async (req, res) => {
 // Generate invoice PDF
 const generateInvoicePDFController = async (req, res) => {
   try {
-    console.log('Generating PDF for invoice ID:', req.params.id);
-    
     const invoice = await Invoice.findById(req.params.id).populate('client');
     if (!invoice) {
-      console.log('Invoice not found with ID:', req.params.id);
       return res.status(404).json({ message: 'Invoice not found' });
     }
-    
-    console.log('Found invoice:', {
-      id: invoice._id,
-      invoiceNumber: invoice.invoiceNumber,
-      client: invoice.client?.name,
-      items: invoice.items?.length
-    });
 
-    let pdfPath;
-    try {
-      // Try using Puppeteer first
-      console.log('Attempting to generate PDF with Puppeteer...');
-      pdfPath = await generateInvoicePDF(invoice);
-      console.log('PDF generated successfully with Puppeteer at path:', pdfPath);
-    } catch (puppeteerError) {
-      console.error('Puppeteer PDF generation failed:', puppeteerError);
-      console.log('Falling back to PDFKit generator...');
-      
-      // If Puppeteer fails, use the fallback generator
-      pdfPath = await generateFallbackPDF(invoice);
-      console.log('Fallback PDF generated successfully at path:', pdfPath);
-    }
-    
-    // Send the PDF file
-    res.download(pdfPath, `Invoice_${invoice.invoiceNumber}.pdf`, (err) => {
-      if (err) {
-        console.error('Error sending PDF file:', err);
-        // Only send error response if headers haven't been sent yet
-        if (!res.headersSent) {
-          res.status(500).json({ message: 'Error sending PDF file', error: err.message });
-        }
-      }
-    });
+    const pdfPath = await generateInvoicePDF(invoice);
+    res.download(pdfPath);
   } catch (error) {
-    console.error('Error generating PDF:', error);
-    if (error.stack) {
-      console.error('Stack trace:', error.stack);
-    }
-    
-    // Only send error response if headers haven't been sent yet
-    if (!res.headersSent) {
-      res.status(500).json({ 
-        message: 'Failed to generate PDF', 
-        error: error.message,
-        details: 'This may be due to server configuration issues with PDF generation.'
-      });
-    }
-  }
-};
-
-// View invoice PDF directly in browser
-const viewInvoicePDFController = async (req, res) => {
-  try {
-    console.log('Viewing PDF for invoice ID:', req.params.id);
-    
-    const invoice = await Invoice.findById(req.params.id).populate('client');
-    if (!invoice) {
-      console.log('Invoice not found with ID:', req.params.id);
-      return res.status(404).json({ message: 'Invoice not found' });
-    }
-    
-    let pdfPath;
-    try {
-      // Try using Puppeteer first
-      pdfPath = await generateInvoicePDF(invoice);
-    } catch (puppeteerError) {
-      console.error('Puppeteer PDF generation failed, using fallback');
-      // If Puppeteer fails, use the fallback generator
-      pdfPath = await generateFallbackPDF(invoice);
-    }
-    
-    // Check if file exists
-    if (!fs.existsSync(pdfPath)) {
-      return res.status(404).json({ message: 'PDF file not found' });
-    }
-    
-    // Set headers for PDF viewing in browser
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="Invoice_${invoice.invoiceNumber}.pdf"`);
-    
-    // Stream the file instead of loading it all into memory
-    const fileStream = fs.createReadStream(pdfPath);
-    fileStream.pipe(res);
-    
-    // Handle errors in the stream
-    fileStream.on('error', (err) => {
-      console.error('Error streaming PDF:', err);
-      if (!res.headersSent) {
-        res.status(500).json({ message: 'Error streaming PDF', error: err.message });
-      }
-    });
-  } catch (error) {
-    console.error('Error viewing PDF:', error);
-    if (!res.headersSent) {
-      res.status(500).json({ 
-        message: 'Failed to view PDF', 
-        error: error.message 
-      });
-    }
+    res.status(500).json({ message: 'Failed to generate PDF', error: error.message });
   }
 };
 
@@ -313,5 +214,4 @@ module.exports = {
   addPaymentToInvoice,
   getInvoicePayments,
   generateInvoicePDFController,
-  viewInvoicePDFController,
 };

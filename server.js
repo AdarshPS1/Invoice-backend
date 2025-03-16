@@ -32,14 +32,19 @@ app.use(cors({
 }));
 app.use(express.json()); // Parse JSON request bodies
 
-// Health check endpoint for Render
-app.get('/api/health', (req, res) => {
-  res.status(200).json({ status: 'ok', message: 'Server is running' });
-});
+
 
 // Test route
 app.get('/', (req, res) => {
   res.send('API is running...');
+});
+
+
+
+// Start server
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
 
 // Routes
@@ -50,9 +55,3 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/clients', clientRoute);
 app.use('/api/dashboard', dashboardRoutes);
-
-// Start server
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
