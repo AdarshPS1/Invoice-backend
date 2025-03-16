@@ -3,7 +3,6 @@ const path = require('path');
 const puppeteer = require('puppeteer');
 const Handlebars = require('handlebars');
 const os = require('os');
-const logger = require('./logger');
 
 // Register Handlebars helpers
 Handlebars.registerHelper('index', function (index) {
@@ -15,15 +14,13 @@ function formatCurrency(amount, currency = 'USD') {
   const currencySymbols = {
     'USD': '$',
     'INR': '₹',
-    'AUD': 'A$',
-    'EUR': '€',
-    'GBP': '£'
+    'AUD': 'A$'
   };
   
-  const symbol = currencySymbols[currency] || currency;
+  const symbol = currencySymbols[currency] || currencySymbols['USD'];
   
   // Format with 2 decimal places
-  const formattedAmount = parseFloat(amount).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const formattedAmount = amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   
   return `${symbol}${formattedAmount}`;
 }
@@ -86,17 +83,14 @@ const generateInvoicePDF = async (invoice) => {
   let browser = null;
   
   try {
-    logger.info('Starting PDF generation process...');
-    logger.debug('System info: ' + JSON.stringify({
+    console.log('Starting PDF generation process...');
+    console.log('System info:', {
       platform: os.platform(),
       release: os.release(),
       type: os.type(),
       arch: os.arch(),
       memory: Math.round(os.totalmem() / (1024 * 1024 * 1024)) + 'GB'
-    }));
-    
-    // Log the full invoice object for debugging
-    logger.info('Full invoice data: ' + JSON.stringify(invoice, null, 2));
+    });
     
     // Validate invoice data
     if (!invoice || typeof invoice !== 'object') {
@@ -107,61 +101,20 @@ const generateInvoicePDF = async (invoice) => {
       throw new Error('Missing invoiceNumber in invoice data');
     }
 
-    logger.info(`Processing invoice: ${invoice.invoiceNumber} for client: ${invoice.client?.name || 'Unknown'}`);
-    logger.info(`Client details: ${JSON.stringify(invoice.client, null, 2)}`);
-    logger.info(`Items details: ${JSON.stringify(invoice.items, null, 2)}`);
+    console.log('Processing invoice:', {
+      invoiceNumber: invoice.invoiceNumber,
+      client: invoice.client?.name || 'Unknown',
+      items: Array.isArray(invoice.items) ? invoice.items.length : 0
+    });
 
     // Calculate total amount
     const totalAmount = Array.isArray(invoice.items) 
       ? invoice.items.reduce((sum, item) => sum + ((item.quantity || 0) * (item.rate || 0)), 0)
       : 0;
-    
-    logger.info(`Calculated total amount: ${totalAmount}`);
 
-    // Format date values
-    const formatDate = (dateString) => {
-      if (!dateString) return '';
-      const date = new Date(dateString);
-      return date.toLocaleDateString('en-GB', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
-      });
-    };
-
-    // Prepare template data with careful handling of all fields
-    const data = {
-      invoiceNumber: invoice.invoiceNumber || 'N/A',
-      date: formatDate(invoice.createdAt || invoice.date || new Date()),
-      dueDate: formatDate(invoice.dueDate || new Date()),
-      clientName: invoice.client?.name || 'N/A',
-      clientEmail: invoice.client?.email || 'N/A',
-      clientPhone: invoice.client?.phone || 'N/A',
-      items: Array.isArray(invoice.items) && invoice.items.length > 0 
-        ? invoice.items.map((item, index) => ({
-            description: item.description || 'No description',
-            sac: item.sac || '998314',
-            quantity: item.quantity || 1,
-            rate: formatCurrency(item.rate || 0, invoice.currency),
-            amount: formatCurrency((item.quantity || 0) * (item.rate || 0), invoice.currency),
-          }))
-        : [{ 
-            description: 'No items found', 
-            sac: 'N/A', 
-            quantity: 0, 
-            rate: formatCurrency(0, invoice.currency), 
-            amount: formatCurrency(0, invoice.currency) 
-          }],
-      totalAmount: formatCurrency(totalAmount, invoice.currency),
-      amountInWords: convertAmountToWords(Math.round(totalAmount)),
-      currency: invoice.currency || 'USD',
-    };
-
-    logger.debug('Template data prepared: ' + JSON.stringify(data, null, 2));
-
-    // Generate HTML content
+    // Prepare template data
     const templatePath = path.join(__dirname, 'invoiceTemplate.html');
-    logger.debug(`Template path: ${templatePath}`);
+    console.log('Template path:', templatePath);
     
     if (!fs.existsSync(templatePath)) {
       throw new Error(`Invoice template not found at ${templatePath}`);
@@ -170,18 +123,44 @@ const generateInvoicePDF = async (invoice) => {
     const html = fs.readFileSync(templatePath, 'utf8');
     const template = Handlebars.compile(html);
 
+    const data = {
+      invoiceNumber: invoice.invoiceNumber,
+      date: invoice.date,
+      dueDate: invoice.dueDate,
+      clientName: invoice.client?.name || 'N/A',
+      clientEmail: invoice.client?.email || 'N/A',
+      clientPhone: invoice.client?.phone || 'N/A',
+      items: Array.isArray(invoice.items) ? invoice.items.map((item) => ({
+        description: item.description || 'No description',
+        sac: item.sac || '998314',
+        quantity: item.quantity || 1,
+        rate: item.rate || 0,
+        amount: (item.quantity || 0) * (item.rate || 0),
+      })) : [],
+      totalAmount: totalAmount,
+      amountInWords: convertAmountToWords(totalAmount),
+      currency: invoice.currency || 'USD',
+    };
+
+    // Format amounts using the selected currency
+    data.items = data.items.map(item => ({
+      ...item,
+      rate: formatCurrency(item.rate, data.currency),
+      amount: formatCurrency(item.amount, data.currency),
+    }));
+    data.totalAmount = formatCurrency(data.totalAmount, data.currency);
+
+    console.log('Compiled template data successfully');
+
+    // Generate HTML content
     const compiledHtml = template(data);
 
-    // For debugging - save the compiled HTML to a file
+    // Create directory for invoices if it doesn't exist
     const invoicesDir = path.join(__dirname, '..', 'invoices');
     if (!fs.existsSync(invoicesDir)) {
-      logger.info(`Creating invoices directory at ${invoicesDir}`);
+      console.log(`Creating invoices directory at ${invoicesDir}`);
       fs.mkdirSync(invoicesDir, { recursive: true });
     }
-    
-    const debugHtmlPath = path.join(invoicesDir, `debug_${invoice.invoiceNumber}.html`);
-    fs.writeFileSync(debugHtmlPath, compiledHtml);
-    logger.info(`Debug HTML saved to: ${debugHtmlPath}`);
 
     // Sanitize filename
     const sanitizeFilename = (filename) => {
@@ -194,10 +173,10 @@ const generateInvoicePDF = async (invoice) => {
     const pdfFilename = `Invoice_${sanitizeFilename(invoice.invoiceNumber)}.pdf`;
     const pdfPath = path.join(invoicesDir, pdfFilename);
     
-    logger.info(`PDF will be saved to: ${pdfPath}`);
+    console.log(`PDF will be saved to: ${pdfPath}`);
 
     // Launch Puppeteer with specific configuration for cloud environments
-    logger.info('Launching Puppeteer...');
+    console.log('Launching Puppeteer...');
     
     // Define browser launch options based on environment
     const isProduction = process.env.NODE_ENV === 'production';
@@ -212,78 +191,63 @@ const generateInvoicePDF = async (invoice) => {
         '--no-zygote',
         '--single-process',
         '--disable-gpu'
-      ],
-      timeout: 30000 // 30 seconds timeout
+      ]
     };
     
     // In production, try to use the installed Chrome
     if (isProduction && process.env.PUPPETEER_EXECUTABLE_PATH) {
-      logger.info(`Using Chrome at: ${process.env.PUPPETEER_EXECUTABLE_PATH}`);
+      console.log(`Using Chrome at: ${process.env.PUPPETEER_EXECUTABLE_PATH}`);
       launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
     }
     
-    logger.debug(`Browser launch options: ${JSON.stringify(launchOptions, null, 2)}`);
+    console.log('Browser launch options:', JSON.stringify(launchOptions, null, 2));
     
     browser = await puppeteer.launch(launchOptions);
-    logger.info('Browser launched successfully');
+    console.log('Browser launched successfully');
     
     const page = await browser.newPage();
-    logger.debug('New page created');
+    console.log('New page created');
     
-    // Set viewport to A4 size
-    await page.setViewport({
-      width: 1240, // A4 width in pixels at higher DPI
-      height: 1754, // A4 height in pixels at higher DPI
-      deviceScaleFactor: 1.5, // Higher resolution
-    });
-    
-    // Set content with timeout and wait for all resources to load
+    // Set content with timeout
     await page.setContent(compiledHtml, { 
-      waitUntil: ['domcontentloaded', 'networkidle0'],
+      waitUntil: 'networkidle0',
       timeout: 30000 
     });
-    
-    logger.debug('Content set to page');
+    console.log('Content set to page');
 
-    // Wait a moment for any JavaScript to execute and styles to apply
-    await page.waitForTimeout(1000);
-
-    // Generate PDF with proper settings for invoice
+    // Generate PDF
     await page.pdf({ 
       path: pdfPath, 
       format: 'A4',
       printBackground: true,
       margin: {
-        top: '0.4cm',
-        right: '0.4cm',
-        bottom: '0.4cm',
-        left: '0.4cm'
-      },
-      preferCSSPageSize: true,
-      displayHeaderFooter: false,
-      scale: 0.98 // Slightly scale down to ensure content fits properly
+        top: '1cm',
+        right: '1cm',
+        bottom: '1cm',
+        left: '1cm'
+      }
     });
     
-    logger.info('PDF generated successfully');
+    console.log('PDF generated successfully');
     
     // Close browser
     if (browser) {
       await browser.close();
-      logger.debug('Browser closed');
+      console.log('Browser closed');
     }
     
     return pdfPath;
   } catch (err) {
-    logger.error(`Error in PDF generation: ${err.message}`);
-    logger.error(`Error stack: ${err.stack || 'No stack trace available'}`);
+    console.error('Error in PDF generation:', err);
+    console.error('Error stack:', err.stack);
     
     // Ensure browser is closed in case of error
     if (browser) {
       try {
         await browser.close();
-        logger.debug('Browser closed after error');
+        console.log('Browser closed after error');
       } catch (closeErr) {
-        logger.error(`Error closing browser: ${closeErr.message}`);
+        console.error('Error closing browser:', closeErr);
       }
     }
     
