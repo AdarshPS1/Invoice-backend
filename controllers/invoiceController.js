@@ -69,21 +69,28 @@ const createInvoice = async (req, res) => {
 // Update an invoice
 const updateInvoice = async (req, res) => {
   const { client, amount, dueDate, items, currency } = req.body;
+  const logger = require('../utils/logger');
 
-  console.log('Update request data:', req.body);
+  logger.info(`Update request for invoice ID: ${req.params.id}`);
+  logger.info(`Update request data: ${JSON.stringify(req.body, null, 2)}`);
 
   try {
     const invoice = await Invoice.findById(req.params.id);
     if (!invoice) {
+      logger.warn(`Invoice not found with ID: ${req.params.id}`);
       return res.status(404).json({ message: 'Invoice not found' });
     }
+
+    logger.info(`Found invoice before update: ${JSON.stringify(invoice, null, 2)}`);
 
     // Check if client exists if client ID is provided
     if (client) {
       const existingClient = await Client.findById(client);
       if (!existingClient) {
+        logger.warn(`Client not found with ID: ${client}`);
         return res.status(404).json({ message: 'Client not found' });
       }
+      logger.info(`Found client: ${JSON.stringify(existingClient, null, 2)}`);
       invoice.client = client;
     }
 
@@ -92,6 +99,7 @@ const updateInvoice = async (req, res) => {
     
     // Validate that new amount is not less than paid amount
     if (amount !== undefined && amount < paidAmount) {
+      logger.warn(`Invoice amount (${amount}) cannot be less than paid amount (${paidAmount})`);
       return res.status(400).json({ message: 'Invoice amount cannot be less than paid amount' });
     }
 
@@ -99,22 +107,26 @@ const updateInvoice = async (req, res) => {
     if (amount !== undefined) invoice.amount = amount;
     if (dueDate) invoice.dueDate = dueDate;
     if (currency) invoice.currency = currency;
-    if (items) invoice.items = items;
+    if (items) {
+      logger.info(`Updating items: ${JSON.stringify(items, null, 2)}`);
+      invoice.items = items;
+    }
 
     // Update status if needed
     if (invoice.status === 'Paid' && amount > paidAmount) {
       invoice.status = 'Pending';
     }
 
-    console.log('Invoice to be updated:', invoice); // Log before saving
+    logger.info(`Invoice to be updated: ${JSON.stringify(invoice, null, 2)}`);
 
     await invoice.save();
 
-    console.log('Invoice updated:', invoice); // Log after saving
+    logger.info(`Invoice updated: ${JSON.stringify(invoice, null, 2)}`);
 
     res.json(invoice);
   } catch (error) {
-    console.error('Error updating invoice:', error);
+    logger.error(`Error updating invoice: ${error.message}`);
+    logger.error(`Error stack: ${error.stack || 'No stack trace available'}`);
     res.status(500).json({ message: 'Failed to update invoice', error: error.message });
   }
 };
@@ -200,6 +212,7 @@ const generateInvoicePDFController = async (req, res) => {
     const logger = require('../utils/logger');
     logger.info(`Generating PDF for invoice ID: ${req.params.id}`);
     
+    // Fetch the invoice with client data
     const invoice = await Invoice.findById(req.params.id).populate('client');
     if (!invoice) {
       logger.warn(`Invoice not found with ID: ${req.params.id}`);
@@ -207,6 +220,20 @@ const generateInvoicePDFController = async (req, res) => {
     }
     
     logger.info(`Found invoice: ${invoice._id}, number: ${invoice.invoiceNumber}, client: ${invoice.client?.name}`);
+    logger.info(`Invoice data from DB: ${JSON.stringify(invoice, null, 2)}`);
+    
+    // Ensure client is populated
+    if (!invoice.client || !invoice.client.name) {
+      logger.error(`Client data missing or incomplete for invoice: ${invoice._id}`);
+      return res.status(400).json({ message: 'Invoice has missing or invalid client data' });
+    }
+    
+    // Ensure items are present
+    if (!Array.isArray(invoice.items) || invoice.items.length === 0) {
+      logger.warn(`Invoice ${invoice._id} has no items`);
+    } else {
+      logger.info(`Invoice has ${invoice.items.length} items`);
+    }
 
     // Check if PDF already exists in cache
     const invoicesDir = path.join(__dirname, '..', 'invoices');

@@ -95,6 +95,9 @@ const generateInvoicePDF = async (invoice) => {
       memory: Math.round(os.totalmem() / (1024 * 1024 * 1024)) + 'GB'
     }));
     
+    // Log the full invoice object for debugging
+    logger.info('Full invoice data: ' + JSON.stringify(invoice, null, 2));
+    
     // Validate invoice data
     if (!invoice || typeof invoice !== 'object') {
       throw new Error('Invalid invoice data');
@@ -105,11 +108,15 @@ const generateInvoicePDF = async (invoice) => {
     }
 
     logger.info(`Processing invoice: ${invoice.invoiceNumber} for client: ${invoice.client?.name || 'Unknown'}`);
+    logger.info(`Client details: ${JSON.stringify(invoice.client, null, 2)}`);
+    logger.info(`Items details: ${JSON.stringify(invoice.items, null, 2)}`);
 
     // Calculate total amount
     const totalAmount = Array.isArray(invoice.items) 
       ? invoice.items.reduce((sum, item) => sum + ((item.quantity || 0) * (item.rate || 0)), 0)
       : 0;
+    
+    logger.info(`Calculated total amount: ${totalAmount}`);
 
     // Format date values
     const formatDate = (dateString) => {
@@ -122,7 +129,37 @@ const generateInvoicePDF = async (invoice) => {
       });
     };
 
-    // Prepare template data
+    // Prepare template data with careful handling of all fields
+    const data = {
+      invoiceNumber: invoice.invoiceNumber || 'N/A',
+      date: formatDate(invoice.createdAt || invoice.date || new Date()),
+      dueDate: formatDate(invoice.dueDate || new Date()),
+      clientName: invoice.client?.name || 'N/A',
+      clientEmail: invoice.client?.email || 'N/A',
+      clientPhone: invoice.client?.phone || 'N/A',
+      items: Array.isArray(invoice.items) && invoice.items.length > 0 
+        ? invoice.items.map((item, index) => ({
+            description: item.description || 'No description',
+            sac: item.sac || '998314',
+            quantity: item.quantity || 1,
+            rate: formatCurrency(item.rate || 0, invoice.currency),
+            amount: formatCurrency((item.quantity || 0) * (item.rate || 0), invoice.currency),
+          }))
+        : [{ 
+            description: 'No items found', 
+            sac: 'N/A', 
+            quantity: 0, 
+            rate: formatCurrency(0, invoice.currency), 
+            amount: formatCurrency(0, invoice.currency) 
+          }],
+      totalAmount: formatCurrency(totalAmount, invoice.currency),
+      amountInWords: convertAmountToWords(Math.round(totalAmount)),
+      currency: invoice.currency || 'USD',
+    };
+
+    logger.debug('Template data prepared: ' + JSON.stringify(data, null, 2));
+
+    // Generate HTML content
     const templatePath = path.join(__dirname, 'invoiceTemplate.html');
     logger.debug(`Template path: ${templatePath}`);
     
@@ -133,28 +170,6 @@ const generateInvoicePDF = async (invoice) => {
     const html = fs.readFileSync(templatePath, 'utf8');
     const template = Handlebars.compile(html);
 
-    const data = {
-      invoiceNumber: invoice.invoiceNumber,
-      date: formatDate(invoice.date || new Date()),
-      dueDate: formatDate(invoice.dueDate),
-      clientName: invoice.client?.name || 'N/A',
-      clientEmail: invoice.client?.email || 'N/A',
-      clientPhone: invoice.client?.phone || 'N/A',
-      items: Array.isArray(invoice.items) ? invoice.items.map((item) => ({
-        description: item.description || 'No description',
-        sac: item.sac || '998314',
-        quantity: item.quantity || 1,
-        rate: formatCurrency(item.rate || 0, invoice.currency),
-        amount: formatCurrency((item.quantity || 0) * (item.rate || 0), invoice.currency),
-      })) : [],
-      totalAmount: formatCurrency(totalAmount, invoice.currency),
-      amountInWords: convertAmountToWords(Math.round(totalAmount)),
-      currency: invoice.currency || 'USD',
-    };
-
-    logger.debug('Compiled template data successfully');
-
-    // Generate HTML content
     const compiledHtml = template(data);
 
     // For debugging - save the compiled HTML to a file
