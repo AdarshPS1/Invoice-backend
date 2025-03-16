@@ -77,6 +77,19 @@ function convertAmountToWords(amount) {
   return result.trim();
 }
 
+// Install Puppeteer browser if needed
+async function ensureBrowser() {
+  try {
+    // Try to install Chrome if it's not already installed
+    const { execSync } = require('child_process');
+    console.log('Attempting to install Chrome...');
+    execSync('node node_modules/puppeteer/install.js', { stdio: 'inherit' });
+    console.log('Chrome installation completed');
+  } catch (err) {
+    console.log('Chrome installation failed, will try to use bundled Chromium:', err.message);
+  }
+}
+
 const generateInvoicePDF = async (invoice) => {
   let browser = null;
   
@@ -168,33 +181,45 @@ const generateInvoicePDF = async (invoice) => {
     const pdfFilename = `Invoice_${sanitizeFilename(invoice.invoiceNumber)}.pdf`;
     const pdfPath = path.join(invoicesDir, pdfFilename);
 
-    // Launch browser with minimal configuration
+    // Ensure browser is installed
+    await ensureBrowser();
+
+    // Launch browser with minimal configuration for Render
     const puppeteerArgs = [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-accelerated-2d-canvas',
-      '--disable-gpu'
+      '--disable-gpu',
+      '--font-render-hinting=none'
     ];
 
     // Launch browser with a timeout
     try {
+      console.log('Launching browser...');
       browser = await puppeteer.launch({
         headless: true,
         args: puppeteerArgs,
-        timeout: 30000
+        ignoreHTTPSErrors: true,
+        product: 'chrome',
+        // Use bundled Chromium instead of system Chrome
+        executablePath: undefined
       });
+      console.log('Browser launched successfully');
 
       // Create a new page
       const page = await browser.newPage();
+      console.log('New page created');
       
       // Set content with minimal wait
+      console.log('Setting page content...');
       await page.setContent(compiledHtml, { 
-        waitUntil: 'domcontentloaded',
-        timeout: 20000
+        waitUntil: 'domcontentloaded'
       });
+      console.log('Page content set');
 
       // Generate PDF with simple settings
+      console.log('Generating PDF...');
       await page.pdf({
         path: pdfPath,
         format: 'A4',
@@ -204,13 +229,14 @@ const generateInvoicePDF = async (invoice) => {
           right: '20px',
           bottom: '20px',
           left: '20px'
-        },
-        timeout: 30000
+        }
       });
+      console.log('PDF generated successfully at:', pdfPath);
 
       // Close browser
       await browser.close();
       browser = null;
+      console.log('Browser closed');
 
       return pdfPath;
     } catch (puppeteerError) {

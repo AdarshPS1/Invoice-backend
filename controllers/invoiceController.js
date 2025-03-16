@@ -1,6 +1,7 @@
 const Invoice = require('../models/Invoice');
 const Client = require('../models/Client');
 const generateInvoicePDF = require('../utils/pdfGenerator');
+const generateSimplePDF = require('../utils/simplePdfGenerator');
 const fs = require('fs');
 
 // Get all invoices
@@ -196,13 +197,25 @@ const generateInvoicePDFController = async (req, res) => {
     // Generate the PDF
     let pdfPath;
     try {
+      // Try to generate PDF with Puppeteer first
+      console.log('Attempting to generate PDF with Puppeteer...');
       pdfPath = await generateInvoicePDF(invoice);
-    } catch (pdfError) {
-      console.error('PDF generation error:', pdfError);
-      return res.status(500).json({ 
-        message: 'Failed to generate PDF', 
-        error: pdfError.message 
-      });
+      console.log('Puppeteer PDF generation successful');
+    } catch (puppeteerError) {
+      console.error('Puppeteer PDF generation failed:', puppeteerError);
+      
+      // If Puppeteer fails, try the simple PDF generator
+      console.log('Falling back to simple PDF generator...');
+      try {
+        pdfPath = await generateSimplePDF(invoice);
+        console.log('Simple PDF generation successful');
+      } catch (simplePdfError) {
+        console.error('Simple PDF generation also failed:', simplePdfError);
+        return res.status(500).json({ 
+          message: 'Failed to generate PDF with both methods', 
+          error: simplePdfError.message 
+        });
+      }
     }
     
     // Check if file exists
